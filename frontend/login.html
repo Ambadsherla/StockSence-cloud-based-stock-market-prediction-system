@@ -18,15 +18,17 @@
   .brand { font-size: 26px; font-weight: 800; color: #00b386; text-align: center; }
   .brand span { color: var(--text); }
   .sub { text-align: center; font-size: 12px; color: var(--muted); margin: 4px 0 20px; }
-  .tabs { display: flex; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+  .tabs { display: flex; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
   .tabs button { flex: 1; background: none; border: 0; padding: 10px; font-size: 14px; font-weight: 700; color: var(--muted);
                  cursor: pointer; border-bottom: 3px solid transparent; }
   .tabs button.on { color: var(--text); border-bottom-color: #00b386; }
+  .hint { font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
   label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; }
-  input { width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid var(--border); border-radius: 8px;
+  input[type=text], input[type=password] { width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid var(--border); border-radius: 8px;
           background: var(--bg); color: var(--text); }
   input:focus { outline: 2px solid #00b386; outline-offset: -1px; }
-  .go { width: 100%; margin-top: 18px; padding: 11px; border: 0; border-radius: 8px; background: #00b386; color: #fff;
+  .remember { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; color: var(--muted); cursor: pointer; }
+  .go { width: 100%; margin-top: 16px; padding: 11px; border: 0; border-radius: 8px; background: #00b386; color: #fff;
         font-size: 14px; font-weight: 700; cursor: pointer; }
   .go:disabled { opacity: .6; cursor: wait; }
   .err { color: var(--err); font-size: 12.5px; margin-top: 12px; min-height: 16px; }
@@ -40,46 +42,77 @@
   <div class="brand">Stock<span>Sense</span></div>
   <div class="sub">Cloud-Based Stock Market Prediction System</div>
   <div class="tabs">
-    <button id="tLogin" class="on" onclick="mode('login')">Sign in</button>
-    <button id="tReg" onclick="mode('register')">Create account</button>
+    <button type="button" id="tLogin" class="on" onclick="setMode('login')">Sign in</button>
+    <button type="button" id="tReg" onclick="setMode('register')">Create account</button>
   </div>
+  <div class="hint" id="hint">Sign in with your existing account.</div>
+
   <label for="u">Username</label>
-  <input id="u" autocomplete="username" autofocus>
+  <input type="text" id="u" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus>
   <label for="p">Password</label>
-  <input id="p" type="password" autocomplete="current-password">
-  <div id="codeWrap" class="hide">
+  <input type="password" id="p" autocomplete="current-password">
+
+  <div id="regWrap" class="hide">
+    <label for="p2">Confirm password</label>
+    <input type="password" id="p2" autocomplete="new-password">
     <label for="c">Invite code (if you were given one)</label>
-    <input id="c" autocomplete="off">
+    <input type="text" id="c" autocomplete="off">
   </div>
-  <button class="go" id="go" onclick="submit()">Sign in</button>
+
+  <label class="remember"><input type="checkbox" id="rem" checked> Keep me signed in on this device</label>
+  <button type="button" class="go" id="go" onclick="doSubmit()">Sign in</button>
   <div class="err" id="err"></div>
-  <button class="theme" id="themeBtn" onclick="toggleTheme()">Dark mode</button>
+  <button type="button" class="theme" id="themeBtn" onclick="toggleTheme()">Dark mode</button>
 </div>
 <script>
   let m = 'login';
   const $ = id => document.getElementById(id);
-  function mode(x) {
+
+  function setMode(x) {
     m = x;
-    $('tLogin').classList.toggle('on', x === 'login'); $('tReg').classList.toggle('on', x === 'register');
-    $('codeWrap').classList.toggle('hide', x === 'login');
-    $('go').textContent = x === 'login' ? 'Sign in' : 'Create account';
-    $('p').autocomplete = x === 'login' ? 'current-password' : 'new-password';
+    const reg = x === 'register';
+    $('tLogin').classList.toggle('on', !reg);
+    $('tReg').classList.toggle('on', reg);
+    $('regWrap').classList.toggle('hide', !reg);
+    $('go').textContent = reg ? 'Create account' : 'Sign in';
+    $('hint').textContent = reg ? 'New here? Pick a username and password.' : 'Sign in with your existing account.';
+    $('p').autocomplete = reg ? 'new-password' : 'current-password';
+    $('p').value = ''; $('p2').value = '';
     $('err').textContent = '';
   }
-  async function submit() {
-    $('go').disabled = true; $('err').textContent = '';
+
+  async function doSubmit() {
+    const reg = m === 'register';
+    $('err').textContent = '';
+    if (!$('u').value.trim() || !$('p').value) { $('err').textContent = 'Enter username and password.'; return; }
+    if (reg && $('p').value !== $('p2').value) { $('err').textContent = 'Passwords do not match.'; return; }
+    $('go').disabled = true;
+    const body = { username: $('u').value.trim(), password: $('p').value, remember: $('rem').checked };
+    if (reg) { body.confirm = $('p2').value; body.code = $('c').value; }
     try {
-      const res = await fetch(m === 'login' ? '/api/login' : '/api/register', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: $('u').value, password: $('p').value, code: $('c').value })
+      const res = await fetch(reg ? '/api/register' : '/api/login', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) { location.href = '/'; return; }
+      if (res.ok) { location.replace('/'); return; }
       $('err').textContent = data.error || 'Something went wrong (HTTP ' + res.status + ').';
     } catch (e) { $('err').textContent = 'Cannot reach the server.'; }
     $('go').disabled = false;
   }
-  document.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+
+  document.addEventListener('keydown', e => { if (e.key === 'Enter') doSubmit(); });
+
+  // Already signed in (also when arriving via Back button)? Skip the login page.
+  async function checkSession() {
+    try {
+      const r = await fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' });
+      if (r.ok) location.replace('/');
+    } catch (e) {}
+  }
+  checkSession();
+  window.addEventListener('pageshow', e => { if (e.persisted) checkSession(); });
+
   function isDark() { return document.documentElement.dataset.theme === 'dark'; }
   function sync() { $('themeBtn').textContent = isDark() ? 'Light mode' : 'Dark mode'; }
   function toggleTheme() {
