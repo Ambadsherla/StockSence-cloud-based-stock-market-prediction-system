@@ -1,0 +1,14 @@
+[Unit]
+Description=StockSense (Flask served by Gunicorn)
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/opt/stocksense
+Environment=START_SCHEDULER=1 PYTHONUNBUFFERED=1
+ExecStart=/opt/stocksense/venv/bin/gunicorn --chdir /opt/stocksense/backend --workers 1 --threads 4 --timeout 120 --bind 127.0.0.1:8000 app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

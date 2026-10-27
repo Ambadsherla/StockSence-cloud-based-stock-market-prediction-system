@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StockSense — Cloud Stock Prediction Dashboard</title>
+<script>
+  try { document.documentElement.dataset.theme = localStorage.getItem('theme') ||
+        (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } catch (e) {}
+</script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root { --bg:#f4f6f8; --soft:#f4f6f8; --card:#fff; --text:#1a1a1a; --border:#e3e7ea; --muted:#8a97a0; --muted2:#5f6b73;
+          --line:#eef1f3; --hl:#eafff6; --warn-bg:#fff4e0; --warn-text:#8a5a00; --buy-bg:#e4fff2; --sell-bg:#ffe9e9; color-scheme: light; }
+  [data-theme="dark"] { --bg:#0e1318; --soft:#1c242d; --card:#151b22; --text:#e6edf3; --border:#27313b; --muted:#8b98a5; --muted2:#a6b2bd;
+          --line:#222b35; --hl:#10302a; --warn-bg:#3a2d12; --warn-text:#f0c36a; --buy-bg:#0f3326; --sell-bg:#3a1a1d; color-scheme: dark; }
+  .hdr-right { display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:flex-end; }
+  .hdr-sub { font-size:11.5px; color:var(--muted); }
+  .ai-hero { display:flex; gap:22px; align-items:center; flex-wrap:wrap; border:1px solid var(--border); border-left-width:5px; border-radius:10px; padding:14px 16px; margin:8px 0 12px; background:var(--soft); }
+  .ai-hero.BUY { border-left-color:#00b386; } .ai-hero.SELL { border-left-color:#e5484d; } .ai-hero.HOLD { border-left-color:var(--muted); }
+  .ai-hero .hero { font-size:22px; font-weight:800; }
+  .k { font-size:11px; color:var(--muted); letter-spacing:.02em; }
+  .meter { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin:6px 0; }
+  .meter i { display:block; height:100%; background:#00b386; }
+  .ai-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:8px 0; }
+  .ai-box { border:1px solid var(--border); border-radius:8px; padding:10px 12px; background:var(--card); }
+  .ai-box .v { font-size:17px; font-weight:800; margin-top:2px; }
+  .ai-box.stop .v { color:#e5484d; } .ai-box.tgt .v { color:#00a86b; }
+  .ai-box .s { font-size:11px; color:var(--muted); margin-top:2px; }
+  .ai-sec { font-size:12px; font-weight:700; margin:14px 0 4px; }
+  .ai-do { font-size:14px; font-weight:600; margin:4px 0 6px; }
+  .chip { display:inline-block; font-size:11.5px; font-weight:700; padding:3px 10px; border-radius:20px; margin:0 6px 6px 0; }
+  .chip.BUY { background:var(--buy-bg); color:#00a86b; } .chip.SELL { background:var(--sell-bg); color:#e5484d; } .chip.HOLD { background:var(--line); color:var(--muted); }
+  .ai-why { margin:4px 0 0 18px; font-size:13.5px; line-height:1.6; }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  header .brand { font-size: 20px; font-weight: 800; color: #00b386; }
+  header .brand span { color: var(--text); }
+  .layout { display: flex; height: calc(100vh - 58px); }
+  .sidebar { width: 260px; flex: 0 0 auto; background: var(--card); border-right: 1px solid var(--border); overflow-y: auto; }
+  .sidebar h3 { padding: 14px 16px 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .watch-item { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; gap: 10px; cursor: pointer; border-left: 3px solid transparent; }
+  .watch-item:hover { background: var(--soft); }
+  .watch-item.active { background: var(--hl); border-left-color: #00b386; }
+  .watch-item .tk { font-weight: 700; font-size: 13.5px; }
+  .watch-item .src { font-size: 10.5px; color: var(--muted); }
+  .watch-item .pr { font-weight: 700; font-size: 13.5px; }
+  .main { flex: 1; min-width: 0; padding: 20px 26px; overflow-y: auto; overflow-x: hidden; }
+  .card { min-width: 0; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin-bottom: 18px; }
+  #priceChart { width: 100%; height: 460px; }
+  .price-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 14px; margin-bottom: 4px; }
+  .price-row h1 { font-size: 26px; }
+  .badge { display: inline-block; font-size: 11px; padding: 3px 9px; border-radius: 20px; font-weight: 700; margin: 0 4px 4px 0; }
+  .badge.BUY { background: var(--buy-bg); color: #00a86b; }
+  .badge.SELL { background: var(--sell-bg); color: #e5484d; }
+  .badge.HOLD { background: var(--line); color: var(--muted); }
+  .legend { display: flex; gap: 16px; font-size: 11.5px; color: var(--muted2); margin-bottom: 10px; }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .legend .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .scorecards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .score-card h4 { font-size: 13.5px; margin-bottom: 10px; }
+  .score-card .win { font-size: 24px; font-weight: 800; color: #00b386; }
+  .lbl { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+  .bar-bg { height: 6px; background: var(--line); border-radius: 4px; overflow: hidden; margin-bottom: 14px; }
+  .bar-fill { height: 100%; background: #00b386; }
+  .stat-line { display: flex; justify-content: space-between; font-size: 12.5px; padding: 4px 0; border-top: 1px dashed var(--line); }
+  .stat-line span:first-child { color: var(--muted); }
+  .loading { padding: 40px; text-align: center; color: var(--muted); }
+  .card .loading { padding: 14px; }
+  .card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .card-head h4 { font-size: 14px; }
+  .src-badge { font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 700; letter-spacing: .03em; }
+  .src-badge.LIVE { background: var(--buy-bg); color: #00a86b; }
+  .src-badge.MANUAL { background: var(--warn-bg); color: var(--warn-text); }
+  .src-badge.SIMULATED { background: var(--line); color: var(--muted2); }
+  .notice { font-size: 12px; border-radius: 6px; padding: 8px 10px; margin: 8px 0; line-height: 1.45; }
+  .notice.warn { background: var(--warn-bg); color: var(--warn-text); }
+  .notice.muted { background: var(--soft); color: var(--muted2); }
+  .oc-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 10px 0 14px; }
+  .oc-metrics .v { font-size: 18px; font-weight: 800; }
+  .oc-metrics .l { font-size: 11px; color: var(--muted); }
+  .table-wrap { overflow-x: auto; }
+  table.oc { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.oc th { text-align: right; font-weight: 600; color: var(--muted); font-size: 11px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  table.oc td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  table.oc th.strike, table.oc td.strike { text-align: center; font-weight: 700; }
+  table.oc tr.atm { background: var(--hl); }
+  table.oc tr.pain td.strike { color: #e5484d; }
+  .tag { font-size: 10px; margin-left: 4px; font-weight: 700; color: var(--muted); }
+  .ai-text { font-size: 14px; line-height: 1.55; margin: 10px 0; }
+  .ai-meta { font-size: 11px; color: var(--muted); }
+  .btn-small { border: 1px solid var(--border); background: var(--card); border-radius: 6px; padding: 3px 10px; font-size: 11.5px; cursor: pointer; }
+  .btn-small:hover { background: var(--soft); }
+  .plan { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 10px 0; }
+  .plan .v { font-size: 16px; font-weight: 800; }
+  .plan .l { font-size: 11px; color: var(--muted); }
+  .plan .stop .v { color: #e5484d; }
+  .plan .tgt .v { color: #00a86b; }
+
+  .up { color: #00a86b; } .dn { color: #e5484d; }
+  @media (max-width: 820px) {
+    .layout { flex-direction: column; height: auto; }
+    .sidebar { width: 100%; border-right: 0; border-bottom: 1px solid var(--border); overflow-x: auto; }
+    .sidebar h3 { display: none; }
+    #watchlist { display: flex; }
+    .watch-item { min-width: 160px; flex: 0 0 auto; }
+    .main { padding: 14px; overflow-y: visible; }
+    .scorecards { grid-template-columns: 1fr; }
+    .oc-metrics, .plan { grid-template-columns: repeat(2, 1fr); }
+    .hdr-sub { display: none; }
+    #priceChart { height: 340px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">Stock<span>Sense</span></div>
+  <div class="hdr-right">
+    <span class="hdr-sub">Cloud-Based Stock Market Prediction System · MCA Capstone</span>
+    <span class="hdr-sub" id="whoami"></span>
+    <button class="btn-small" id="themeBtn" onclick="toggleTheme()">Dark mode</button>
+    <button class="btn-small" id="logoutBtn" onclick="logout()" style="display:none">Logout</button>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="sidebar">
+    <h3>Watchlist</h3>
+    <div id="watchlist"><div class="loading">Loading…</div></div>
+  </div>
+  <div class="main" id="main"><div class="loading">Select a stock to begin</div></div>
+</div>
+
+<script>
+let currentTicker = null;
+let chartInstance = null;
+let candleSeries = null;
+let lastBar = null;
+let dataFresh = false;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+async function fetchJson(url, opts) {
+  const res = await fetch(url, opts);
+  if (res.status === 401) { location.href = '/login'; throw new Error('Signed out'); }
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+const num2 = v => Number(v || 0).toFixed(2);
+const lakh = v => (Number(v || 0) / 1e5).toFixed(2);
+
+async function loadWatchlist() {
+  let data;
+  try { data = await fetchJson('/api/watchlist'); }
+  catch (e) { document.getElementById('watchlist').innerHTML = '<div class="loading">Watchlist unavailable</div>'; return; }
+  const el = document.getElementById('watchlist');
+  el.innerHTML = '';
+  data.forEach(stock => {
+    const div = document.createElement('div');
+    div.className = 'watch-item';
+    div.id = 'wl-' + stock.ticker;
+    div.innerHTML = `<div><div class="tk">${esc(stock.ticker.replace('.NS',''))}</div><div class="src">${esc(stock.source)}</div></div>
+      <div class="pr">₹${Number(stock.price).toFixed(2)}</div>`;
+    div.onclick = () => selectTicker(stock.ticker);
+    el.appendChild(div);
+  });
+  if (currentTicker) {
+    const a = document.getElementById('wl-' + currentTicker);
+    if (a) a.classList.add('active');
+    const cur = data.find(s => s.ticker === currentTicker);
+    if (cur) tickLastCandle(Number(cur.price));
+  }
+  if (!currentTicker && data.length) selectTicker(data[0].ticker);
+}
+
+// move the last candle with the live price (only when the CSV is current)
+function tickLastCandle(price) {
+  if (!dataFresh || !candleSeries || !lastBar || !(price > 0)) return;
+  lastBar = { time: lastBar.time, open: lastBar.open,
+              high: Math.max(lastBar.high, price), low: Math.min(lastBar.low, price), close: price };
+  candleSeries.update(lastBar);
+}
+
+async function selectTicker(ticker) {
+  currentTicker = ticker;
+  document.querySelectorAll('.watch-item').forEach(e => e.classList.remove('active'));
+  const active = document.getElementById('wl-' + ticker);
+  if (active) active.classList.add('active');
+  try {
+    const [history, strategies, backtest] = await Promise.all([
+      fetchJson('/api/history/' + ticker),
+      fetchJson('/api/strategies/' + ticker),
+      fetchJson('/api/backtest/' + ticker)
+    ]);
+    if (ticker !== currentTicker) return;
+    renderMain(ticker, history, strategies, backtest);
+  } catch (e) {
+    if (ticker === currentTicker)
+      document.getElementById('main').innerHTML = `<div class="card"><div class="notice warn">Could not load ${esc(ticker)}: ${esc(e.message)}</div></div>`;
+  }
+}
+
+function renderMain(ticker, history, strategies, backtest) {
+  const last = history[history.length - 1];
+  const latestPrice = Number(last.Close).toFixed(2);
+  const asOf = String(last.Date).substring(0, 10);
+  const ageDays = (Date.now() - new Date(asOf).getTime()) / 864e5;
+  dataFresh = ageDays <= 4;
+
+  const badges = Object.keys(strategies).map(name => {
+    const sig = strategies[name].latest_signal;
+    return `<span class="badge ${esc(sig)}">${esc(name)}: ${esc(sig)}</span>`;
+  }).join(' ');
+
+  const staleNote = dataFresh ? '' :
+    `<div class="notice warn">Price data is from <b>${esc(asOf)}</b> (${Math.round(ageDays)} days old). Signals and predictions use this data.
+     <button class="btn-small" onclick="refreshData()">Refresh data now</button></div>`;
+
+  document.getElementById('main').innerHTML = `
+    <div class="card">
+      <div class="price-row"><h1>${esc(ticker.replace('.NS',''))}</h1>
+        <div style="font-size:20px; font-weight:700;">₹${latestPrice}</div>
+        <div class="ai-meta">Data as of ${esc(asOf)}</div></div>
+      ${staleNote}
+      <div style="margin:10px 0 12px;">${badges}</div>
+      <div class="legend">
+        <span><i class="sw" style="background:#2962ff;"></i> MA 20</span>
+        <span><i class="sw" style="background:#ff6d00;"></i> MA 50</span>
+      </div>
+      <div id="priceChart"></div>
+    </div>
+    <div class="card" id="predictionCard"><div class="loading">Loading prediction…</div></div>
+    <div class="card" id="mlCard"><div class="loading">Loading ML strategy selection…</div></div>
+    <div class="card" id="aiCard"><div class="loading">Generating AI insight… (first call can take a few seconds)</div></div>
+    <div class="card" id="optionCard"><div class="loading">Loading option chain…</div></div>
+    <div class="scorecards" id="scorecards"></div>`;
+
+  renderCandles(history);
+
+  const scoreEl = document.getElementById('scorecards');
+  backtest.forEach(b => {
+    const div = document.createElement('div');
+    div.className = 'card score-card';
+    div.innerHTML = `<h4>${esc(b.Strategy)} · full-period backtest</h4>
+      <div class="win">${b.win_rate}%</div>
+      <div class="lbl">Win Rate (${b.winning_trades}/${b.total_trades} trades)</div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${Math.min(100, b.win_rate)}%"></div></div>
+      <div class="stat-line"><span>Total Return</span><span>${b.total_return_pct}%</span></div>
+      <div class="stat-line"><span>Max Drawdown</span><span>${b.max_drawdown_pct}%</span></div>
+      <div class="stat-line"><span>Final Value</span><span>₹${Number(b.final_value).toLocaleString()}</span></div>`;
+    scoreEl.appendChild(div);
+  });
+
+  fetchJson('/api/predict/' + ticker).then(pred => {
+    if (ticker !== currentTicker) return;
+    const dir = pred.change_pct >= 0 ? 'BUY' : 'SELL';
+    document.getElementById('predictionCard').innerHTML = `
+      <h4>ML Prediction — Next Close</h4>
+      <div style="display:flex; align-items:baseline; flex-wrap:wrap; gap:14px; margin-top:8px;">
+        <div style="font-size:24px; font-weight:800;">₹${pred.predicted_next_close}</div>
+        <span class="badge ${dir}">${pred.change_pct >= 0 ? '+' : ''}${pred.change_pct}%</span></div>
+      <div class="lbl" style="margin-top:6px;">Last close: ₹${pred.current_price} · Ridge regression on RSI / MACD / return features · one-day moves are normally small</div>`;
+  }).catch(e => {
+    const el = document.getElementById('predictionCard');
+    if (el && ticker === currentTicker) el.innerHTML = `<div class="notice muted">Prediction unavailable (${esc(e.message)}).</div>`;
+  });
+
+  loadMl(ticker);
+  loadAiInsight(ticker, false);
+  loadOptionChain(ticker, false);
+}
+
+async function refreshData() {
+  try {
+    await fetchJson('/api/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    selectTicker(currentTicker);
+  } catch (e) { alert('Refresh failed: ' + e.message); }
+}
+
+// the chart library throws on duplicate / unsorted dates and null values
+function uniqueByDate(rows) {
+  const m = new Map();
+  rows.forEach(r => m.set(String(r.Date).substring(0, 10), r));
+  return [...m.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).map(([d, r]) => ({ d, r }));
+}
+
+function renderCandles(history) {
+  if (chartInstance) { chartInstance.remove(); chartInstance = null; }
+  const container = document.getElementById('priceChart');
+
+  chartInstance = LightweightCharts.createChart(container, {
+    autoSize: true,                         // follows the container when the window is resized/split
+    ...chartTheme(),
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal }
+  });
+
+  candleSeries = chartInstance.addCandlestickSeries({
+    upColor: '#00b386', downColor: '#e5484d',
+    borderUpColor: '#00b386', borderDownColor: '#e5484d',
+    wickUpColor: '#00b386', wickDownColor: '#e5484d'
+  });
+  const rows = uniqueByDate(history);
+  const candles = rows.map(({ d, r }) => ({ time: d, open: r.Open, high: r.High, low: r.Low, close: r.Close }));
+  candleSeries.setData(candles);
+  lastBar = candles[candles.length - 1];
+
+  chartInstance.addLineSeries({ color: '#2962ff', lineWidth: 1 })
+    .setData(rows.filter(({ r }) => r.MA_20 != null).map(({ d, r }) => ({ time: d, value: r.MA_20 })));
+  chartInstance.addLineSeries({ color: '#ff6d00', lineWidth: 1 })
+    .setData(rows.filter(({ r }) => r.MA_50 != null).map(({ d, r }) => ({ time: d, value: r.MA_50 })));
+
+  chartInstance.timeScale().fitContent();
+}
+
+// ======================= ML STRATEGY SELECTION =======================
+async function loadMl(ticker) {
+  let m;
+  try { m = await fetchJson('/api/ml-summary/' + ticker); }
+  catch (e) {
+    const el = document.getElementById('mlCard');
+    if (el && ticker === currentTicker) el.innerHTML = `<div class="notice muted">ML strategy results not built yet. Run <b>python data_ingestion/run_pipeline.py</b>.</div>`;
+    return;
+  }
+  if (ticker !== currentTicker) return;
+  const rows = (m.comparison || []).map(c => `<tr class="${c.name === m.best_strategy ? 'atm' : ''}">
+    <td style="text-align:left">${esc(c.name)}${c.name === m.best_strategy ? '<span class="tag">BEST</span>' : ''}</td>
+    <td>${c.win_rate}%</td><td>${c.total_trades}</td><td>${c.total_return_pct}%</td><td>${c.max_drawdown_pct}%</td></tr>`).join('');
+  const win = m.best_win_rate_oos != null ? m.best_win_rate_oos + '%' : '—';
+  const up = m.ml_prob_up != null ? Math.round(m.ml_prob_up * 100) + '%' : '—';
+  document.getElementById('mlCard').innerHTML = `
+    <div class="card-head"><h4>ML Strategy Selection · walk-forward</h4>
+      <span class="badge ${m.ml_signal === 'BUY' ? 'BUY' : m.ml_signal === 'SELL' ? 'SELL' : 'HOLD'}">ML signal: ${esc(m.ml_signal || 'n/a')}</span></div>
+    <div class="oc-metrics">
+      <div><div class="v">${esc(m.best_strategy)}</div><div class="l">Best strategy (out-of-sample)</div></div>
+      <div><div class="v">${win}</div><div class="l">Expected win ratio (historical estimate)</div></div>
+      <div><div class="v">${up}</div><div class="l">Probability up in 5 days</div></div>
+      <div><div class="v">${m.ml_accuracy_oos}%</div><div class="l">ML direction accuracy (guessing-baseline ${m.baseline_accuracy}%)</div></div>
+    </div>
+    <div class="table-wrap"><table class="oc"><thead><tr><th style="text-align:left">Strategy</th><th>Win rate</th><th>Trades</th><th>Return</th><th>Max drawdown</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${m.ml_has_edge === 0 ? '<div class="notice warn"><b>No reliable edge found.</b> On unseen data the ML model was not better than guessing, so its signal is held at HOLD. Do not trade on it.</div>' : ''}
+    ${String(m.best_strategy).startsWith('None') ? '<div class="notice warn"><b>No profitable strategy</b> on the unseen period, so none is recommended for this stock.</div>' : ''}
+    <div class="notice muted">Tested only on unseen data from ${esc(m.oos_start)} (${m.oos_days} trading days), trained on earlier data. Past results are an estimate, not a guarantee. If ML accuracy is not above the baseline, the model has no real edge.</div>`;
+}
+
+// ======================= OPTION CHAIN =======================
+async function loadOptionChain(ticker, silent) {
+  try {
+    const oc = await fetchJson('/api/optionchain/' + ticker);
+    if (ticker !== currentTicker) return;
+    renderOptionChain(oc);
+  } catch (e) {
+    if (ticker !== currentTicker || silent) return;
+    const el = document.getElementById('optionCard');
+    if (el) el.innerHTML = `<div class="notice muted">Option chain unavailable (${esc(e.message)}).</div>`;
+  }
+}
+
+function renderOptionChain(oc) {
+  const el = document.getElementById('optionCard');
+  if (!el) return;
+  const src = oc.source || 'SIMULATED';
+  const hasSpot = typeof oc.spot === 'number';
+  const painDist = (hasSpot && typeof oc.max_pain === 'number') ? ((oc.max_pain - oc.spot) / oc.spot * 100) : null;
+
+  let notice;
+  if (src === 'LIVE') {
+    notice = `<div class="notice muted"><b>LIVE</b> — snapshot from the Upstox API. When the market is closed these are the last session's values.</div>`;
+  } else if (src === 'MANUAL') {
+    notice = `<div class="notice warn"><b>MANUAL</b> — PCR and Max Pain were typed in by the user${oc.fetched_at ? ' at ' + esc(new Date(oc.fetched_at).toLocaleString()) : ''}. No strike-level data for this tier.</div>`;
+  } else {
+    notice = `<div class="notice warn"><b>SIMULATED</b> — synthetic data anchored to the spot price${oc.spot_source ? ' (spot source: ' + esc(oc.spot_source) + ')' : ''}. Do not read this PCR or Max Pain as a market signal.</div>`;
+  }
+  if (src !== 'LIVE' && oc.live_error) notice += `<div class="ai-meta">Live tier unavailable: ${esc(oc.live_error)}</div>`;
+
+  let table = '';
+  let rows = (oc.strikes || []).slice();
+  if (rows.length && hasSpot) {
+    rows.sort((a, b) => Math.abs(a.strike - oc.spot) - Math.abs(b.strike - oc.spot));
+    const atmStrike = rows[0].strike;
+    rows = rows.slice(0, 13).sort((a, b) => a.strike - b.strike);
+    const an = oc.analysis && oc.analysis.available ? oc.analysis : null;
+    const hasChg = !!(an && an.flow_available);
+    const sup = an && an.support ? an.support.strike : null, res = an && an.resistance ? an.resistance.strike : null;
+    const maxOi = Math.max(1, ...rows.map(r => Math.max(r.ce_oi || 0, r.pe_oi || 0)));
+    const bar = (v, col, dir) => { const w = Math.round((v || 0) / maxOi * 100); return `background:linear-gradient(to ${dir}, ${col} ${w}%, transparent ${w}%)`; };
+    const chg = (a2, b2) => { const d = (a2 || 0) - (b2 || 0); return `<td class="${d >= 0 ? 'up' : 'dn'}">${d >= 0 ? '+' : ''}${lakh(d)}</td>`; };
+    const body = rows.map(r => {
+      const isAtm = r.strike === atmStrike, isPain = r.strike === oc.max_pain;
+      const tag = (isAtm ? '<span class="tag">ATM</span>' : '') + (isPain ? '<span class="tag">MAX PAIN</span>' : '')
+        + (r.strike === res ? '<span class="tag" style="color:#e5484d">RESISTANCE</span>' : '')
+        + (r.strike === sup ? '<span class="tag" style="color:#00a86b">SUPPORT</span>' : '');
+      return `<tr class="${isAtm ? 'atm' : ''} ${isPain ? 'pain' : ''}">
+        ${hasChg ? chg(r.ce_oi, r.ce_prev_oi) : ''}<td style="${bar(r.ce_oi, 'rgba(229,72,77,.22)', 'left')}">${lakh(r.ce_oi)}</td><td>${num2(r.ce_ltp)}</td>
+        <td class="strike">${r.strike}${tag}</td>
+        <td>${num2(r.pe_ltp)}</td><td style="${bar(r.pe_oi, 'rgba(0,179,134,.22)', 'right')}">${lakh(r.pe_oi)}</td>${hasChg ? chg(r.pe_oi, r.pe_prev_oi) : ''}</tr>`;
+    }).join('');
+    table = `<div class="table-wrap"><table class="oc">
+      <thead><tr>${hasChg ? '<th>CE ΔOI</th>' : ''}<th>CE OI (lakh)</th><th>CE LTP</th><th class="strike">Strike</th><th>PE LTP</th><th>PE OI (lakh)</th>${hasChg ? '<th>PE ΔOI</th>' : ''}</tr></thead>
+      <tbody>${body}</tbody></table></div>
+      <div class="ai-meta" style="margin-top:8px;">13 strikes closest to spot. Total call OI ${lakh(oc.total_call_oi)} lakh · total put OI ${lakh(oc.total_put_oi)} lakh · PCR = put OI ÷ call OI.</div>`;
+  }
+
+  el.innerHTML = `
+    <div class="card-head"><h4>Option Chain${oc.expiry ? ' · expiry ' + esc(oc.expiry) : ''}</h4>
+      <span class="src-badge ${esc(src)}">${esc(src)}</span></div>
+    ${notice}
+    <div class="oc-metrics">
+      <div><div class="v">${hasSpot ? '₹' + oc.spot.toFixed(2) : '—'}</div><div class="l">Spot</div></div>
+      <div><div class="v">${typeof oc.pcr === 'number' ? oc.pcr.toFixed(2) : '—'}</div><div class="l">PCR</div></div>
+      <div><div class="v">${typeof oc.max_pain === 'number' ? '₹' + oc.max_pain : '—'}</div>
+        <div class="l">Max Pain${painDist !== null ? ' (' + (painDist >= 0 ? '+' : '') + painDist.toFixed(1) + '% vs spot)' : ''}</div></div>
+      <div><div class="v">${oc.fetched_at ? esc(new Date(oc.fetched_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : '—'}</div><div class="l">Updated</div></div>
+    </div>${renderOptionAnalysis(oc.analysis, src)}${table}`;
+}
+
+// ======================= OPTION FLOW + TRADE IDEA =======================
+function renderOptionAnalysis(an, src) {
+  if (src !== 'LIVE') return `<div class="notice muted">Option-flow analysis and trade ideas need <b>LIVE</b> data. Run <b>python realtime/upstox_auth.py</b> to unlock them.</div>`;
+  if (!an || !an.available) return `<div class="notice muted">Option-flow analysis unavailable${an && an.note ? ' (' + esc(an.note) + ')' : ''}.</div>`;
+  const cls = { BULLISH: 'BUY', BEARISH: 'SELL', NEUTRAL: 'HOLD' }[an.bias] || 'HOLD';
+  const L = v => lakh(v) + ' L';
+  const lvl = (x, label) => `<div><div class="v">${x ? '₹' + x.strike : '—'}</div><div class="l">${label}${x ? ' · ' + L(x.oi) + ' OI' : ''}</div></div>`;
+  const flow = (an.flow_available && (an.flow.ce.added + an.flow.pe.added) > 0) ? `<div class="ai-meta">New call OI ${L(an.flow.ce.added)} (buyer-driven ${L(an.flow.ce.buyer)}, writer-driven ${L(an.flow.ce.writer)}) ·
+      new put OI ${L(an.flow.pe.added)} (buyer-driven ${L(an.flow.pe.buyer)}, writer-driven ${L(an.flow.pe.writer)})</div>` : '';
+  const i = an.idea;
+  const idea = i ? `
+    <div class="card-head" style="margin-top:14px;"><h4>Option idea: ${esc(i.label)} (${esc(i.type)}) · expiry ${esc(i.expiry)}</h4></div>
+    <div class="plan">
+      <div><div class="v">₹${Number(i.premium).toFixed(2)}</div><div class="l">Premium per share</div></div>
+      <div><div class="v">${i.cost_per_lot != null ? '₹' + Number(i.cost_per_lot).toLocaleString() : '—'}</div><div class="l">Cost of 1 lot${i.lot_size ? ' (' + i.lot_size + ' shares)' : ''} = max loss</div></div>
+      <div><div class="v">₹${Number(i.breakeven).toFixed(2)}</div><div class="l">Breakeven (${i.breakeven_move_pct >= 0 ? '+' : ''}${i.breakeven_move_pct}% move needed)</div></div>
+      <div class="stop"><div class="v">Exit if</div><div class="l">${esc(i.invalid_if)}</div></div>
+    </div>
+    <div class="ai-meta">${i.delta != null ? 'Delta ' + Number(i.delta).toFixed(2) + ' · ' : ''}${i.iv != null ? 'IV ' + Number(i.iv).toFixed(0) + '% · ' : ''}${i.spread_pct != null ? 'Bid-ask spread ' + i.spread_pct + '% · ' : ''}${i.dte != null ? i.dte + ' days to expiry' : ''}</div>
+    ${(i.warnings || []).map(w => `<div class="notice warn">${esc(w)}</div>`).join('')}`
+    : `<div class="notice muted">${esc(an.idea_note || 'No option trade suggested.')}</div>`;
+  return `
+    <div class="card-head" style="margin-top:6px;"><h4>Option flow · market bias</h4>
+      <span class="badge ${cls}">${esc(an.bias)} · strength ${an.strength}/100</span></div>
+    <div class="plan">
+      ${lvl(an.support, 'Support (most put OI)')}${lvl(an.resistance, 'Resistance (most call OI)')}
+      <div><div class="v">${an.pcr_volume != null ? an.pcr_volume.toFixed(2) : '—'}</div><div class="l">PCR by volume (today's trading)</div></div>
+      <div><div class="v">${an.dte != null ? an.dte : '—'}</div><div class="l">Days to expiry</div></div>
+    </div>
+    <ul class="ai-meta" style="margin:6px 0 6px 18px; line-height:1.6;">${(an.reasons || []).map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+    ${flow}${idea}
+    <div class="notice muted">Estimate from open interest and price change. Open interest counts open contracts (each has a buyer and a seller), so the buyer/writer split is a heuristic. Buying options can lose the entire premium. Not financial advice.</div>`;
+}
+
+// ======================= AI INSIGHT + ENTRY/EXIT =======================
+async function loadAiInsight(ticker, refresh) {
+  if (refresh) {
+    const el = document.getElementById('aiCard');
+    if (el) el.innerHTML = '<div class="loading">Regenerating AI insight…</div>';
+  }
+  try {
+    const ai = await fetchJson('/api/ai-insight/' + ticker + (refresh ? '?refresh=1' : ''));
+    if (ticker !== currentTicker) return;
+    renderAiInsight(ai);
+  } catch (e) {
+    if (ticker !== currentTicker) return;
+    renderAiInsight({ source: 'UNAVAILABLE', error: e.message });
+  }
+}
+
+function renderAiInsight(ai) {
+  const el = document.getElementById('aiCard');
+  if (!el) return;
+  if (ai.source !== 'GEMINI_AI') {
+    el.innerHTML = `
+      <div class="card-head"><h4>AI Insight · Gemini</h4><span class="src-badge SIMULATED">UNAVAILABLE</span></div>
+      <div class="notice muted">The AI insight is unavailable right now. Everything else on this page is unaffected.</div>
+      ${ai.error ? `<div class="ai-meta">Reason: ${esc(ai.error)}</div>` : ''}
+      <div class="ai-meta" style="margin-top:8px;"><button class="btn-small" onclick="loadAiInsight(currentTicker, true)">Try again</button></div>`;
+    return;
+  }
+  const f = v => '₹' + Number(v).toFixed(2);
+  const S = ai.sentiment;
+  const cls = { BULLISH: 'BUY', BEARISH: 'SELL', NEUTRAL: 'HOLD' }[S] || 'HOLD';
+  const word = { BULLISH: 'Looks positive', BEARISH: 'Looks negative', NEUTRAL: 'No clear direction' }[S] || 'No clear direction';
+  const action = {
+    BULLISH: ai.entry_zone ? 'Consider buying only inside the entry zone. Sell if the price falls to the stop-loss.' : 'The view is positive, but there is no safe entry level right now. Wait.',
+    BEARISH: 'Avoid new buying. If you already hold this stock, consider reducing risk.',
+    NEUTRAL: 'Wait. The signals disagree, so there is no good trade yet.'
+  }[S] || 'Wait.';
+  const when = ai.generated_at ? new Date(ai.generated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const cur = ai.current_price, est = ai.ai_price_estimate;
+  const estPct = (cur && typeof est === 'number') ? (est - cur) / cur * 100 : null;
+  const box = (k, v, s, c) => `<div class="ai-box ${c || ''}"><div class="k">${k}</div><div class="v">${v}</div>${s ? `<div class="s">${s}</div>` : ''}</div>`;
+
+  let levels;
+  if (ai.entry_zone) {
+    const mid = (ai.entry_zone[0] + ai.entry_zone[1]) / 2;
+    const rr = Math.abs(ai.target_1 - mid) / Math.max(Math.abs(mid - ai.stop_loss), 0.01);
+    levels = box('Entry zone', f(ai.entry_zone[0]) + ' – ' + f(ai.entry_zone[1]), esc(ai.side))
+      + box('Stop-loss', f(ai.stop_loss), 'exit if price reaches this', 'stop')
+      + box('Target 1', f(ai.target_1), 'first profit level', 'tgt')
+      + box('Target 2', f(ai.target_2), 'second profit level', 'tgt')
+      + box('Reward vs risk', rr.toFixed(1) + ' : 1', 'to Target 1');
+  } else {
+    levels = box('Trade levels', 'None now', 'No entry or exit levels are suggested while the view is neutral.');
+  }
+
+  const chips = Object.entries(ai.signals || {}).filter(([k, v]) => v).map(([k, v]) => {
+    const c = (v === 'BUY' || v === 'BULLISH') ? 'BUY' : (v === 'SELL' || v === 'BEARISH') ? 'SELL' : 'HOLD';
+    return `<span class="chip ${c}">${esc(k)}: ${esc(v)}</span>`;
+  }).join('');
+  const why = (String(ai.insight || '').match(/[^.!?]+[.!?]*/g) || []).map(x => x.trim()).filter(Boolean)
+    .map(x => `<li>${esc(x)}</li>`).join('');
+
+  el.innerHTML = `
+    <div class="card-head"><h4>AI Insight · Gemini</h4>
+      <span class="ai-meta">Model: ${esc(ai.model)}${when ? ' · ' + esc(when) : ''} · <button class="btn-small" onclick="loadAiInsight(currentTicker, true)">Regenerate</button></span></div>
+    <div class="ai-hero ${cls}">
+      <div><div class="k">AI view</div><div class="hero">${word}</div></div>
+      <div style="flex:1; min-width:190px;"><div class="k">Confidence: ${esc(ai.confidence)}%</div>
+        <div class="meter"><i style="width:${Math.max(0, Math.min(100, Number(ai.confidence) || 0))}%"></i></div>
+        <div class="k">Time frame: ${esc(ai.horizon || 'not stated')}</div></div>
+    </div>
+    <div class="ai-do">What to do: ${esc(action)}</div>
+    <div class="ai-sec">Price estimate</div>
+    <div class="ai-grid">
+      ${cur ? box('Price now', f(cur)) : ''}
+      ${typeof est === 'number' ? box('AI estimate, next close', f(est), (estPct !== null ? (estPct >= 0 ? '+' : '') + estPct.toFixed(2) + '% · rough guide only' : '')) : ''}
+      ${ai.support != null ? box('Support (floor)', f(ai.support), '20-day low') : ''}
+      ${ai.resistance != null ? box('Resistance (ceiling)', f(ai.resistance), '20-day high') : ''}
+    </div>
+    <div class="ai-sec">Trade levels (calculated from recent volatility, not guessed by the AI)</div>
+    <div class="ai-grid">${levels}</div>
+    <div class="ai-sec">Do the signals agree?</div>
+    <div>${chips || '<span class="ai-meta">No signal data.</span>'}</div>
+    <div class="ai-sec">Why</div>
+    <ul class="ai-why">${why}</ul>
+    ${ai.stale_cache ? '<div class="notice warn">Gemini is busy, so this is the last successful answer.</div>' : ''}
+    <div class="notice muted">AI-generated explanation of the numbers on this page. Not financial advice and not a guaranteed forecast.</div>`;
+}
+
+function chartTheme() {
+  const d = isDark();
+  return {
+    layout: { background: { color: d ? '#151b22' : '#ffffff' }, textColor: d ? '#e6edf3' : '#1a1a1a' },
+    grid: { vertLines: { color: d ? '#222b35' : '#f0f1f3' }, horzLines: { color: d ? '#222b35' : '#f0f1f3' } },
+    timeScale: { borderColor: d ? '#27313b' : '#e3e7ea' },
+    rightPriceScale: { borderColor: d ? '#27313b' : '#e3e7ea' }
+  };
+}
+function isDark() { return document.documentElement.dataset.theme === 'dark'; }
+function syncThemeBtn() { const b = document.getElementById('themeBtn'); if (b) b.textContent = isDark() ? 'Light mode' : 'Dark mode'; }
+function toggleTheme() {
+  const t = isDark() ? 'light' : 'dark';
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('theme', t); } catch (e) {}
+  syncThemeBtn();
+  if (chartInstance) chartInstance.applyOptions(chartTheme());
+}
+async function loadMe() {
+  try {
+    const me = await fetchJson('/api/me');
+    document.getElementById('whoami').textContent = 'Signed in as ' + me.username;
+    document.getElementById('logoutBtn').style.display = '';
+  } catch (e) {}
+}
+async function logout() {
+  try { await fetch('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); } catch (e) {}
+  location.href = '/login';
+}
+syncThemeBtn();
+loadMe();
+
+loadWatchlist();
+setInterval(() => {
+  loadWatchlist();
+  if (currentTicker) loadOptionChain(currentTicker, true);
+}, 60000);
+</script>
+</body>
+</html>
