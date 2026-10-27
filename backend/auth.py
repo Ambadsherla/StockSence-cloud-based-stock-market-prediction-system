@@ -1,15 +1,18 @@
 """
 backend/auth.py
 Login / register / logout for StockSense.
- * Users are stored in data/users.db (SQLite) with salted password hashes (never plain text).
+ * Users stored in SQLite with salted password hashes.
  * Every page and /api route needs a signed-in session, except /login, /healthz and the auth routes.
  * 5 wrong passwords from one address lock that address for 10 minutes.
- * POST requests must be JSON, which stops cross-site form posts (simple CSRF protection).
-.env options (all optional):
-   SECRET_KEY    session signing key (auto-generated into data/.secret_key if missing)
+ * POST requests must be JSON (simple CSRF protection).
+
+.env / Render environment variables:
+   SECRET_KEY    REQUIRED on Render - fixed session signing key (else everyone is logged out on each restart)
+   DATA_DIR      folder for users.db. On Render, attach a Persistent Disk (e.g. mount /var/data)
+                 and set DATA_DIR=/var/data. Without it the database is wiped on every deploy/restart.
    ALLOW_SIGNUP  1 (default) lets people register, 0 closes registration
    SIGNUP_CODE   if set, registration also needs this invite code
-   COOKIE_SECURE set to 1 once the site runs on HTTPS
+   COOKIE_SECURE 1/0 - defaults to 1 automatically on Render (HTTPS)
 """
 import os
 import re
@@ -20,11 +23,13 @@ from contextlib import closing
 from datetime import datetime, timedelta
 
 from flask import jsonify, redirect, request, send_from_directory, session
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 OPEN_PATHS = {"/login", "/healthz", "/api/login", "/api/register", "/api/me"}
 USER_RE = re.compile(r"^[A-Za-z0-9_.-]{3,30}$")
 MAX_FAILS, WINDOW = 5, 600
+REMEMBER_DAYS = 30
 _fails = {}   # ip -> [count, first_failure_time]
 
 
@@ -33,17 +38,18 @@ def _secret(data_dir):
         return os.getenv("SECRET_KEY")
     path = os.path.join(data_dir, ".secret_key")
     if not os.path.exists(path):
-        with open(path, "w") as f:
-            f.write(secrets.token_hex(32))
         try:
-            os.chmod(path, 0o600)
-        except OSError:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(secrets.token_hex(32))
+        except FileExistsError:      # another worker created it first
             pass
-    return open(path).read().strip()
+    with open(path) as f:
+        return f.read().strip()
 
 
 def _ip():
-    return request.headers.get("X-Real-IP") or request.remote_addr or "?"
+    return request.remote_addr or "?"   # real client IP via ProxyFix
 
 
 def _locked(ip):
@@ -63,27 +69,35 @@ def _fail(ip):
 
 
 def init_auth(app, base_dir):
-    data_dir = os.path.join(base_dir, "data")
+    # Render (and most hosts) put a proxy in front: trust its forwarded IP / HTTPS headers
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+    data_dir = os.getenv("DATA_DIR") or os.path.join(base_dir, "data")
     os.makedirs(data_dir, exist_ok=True)
     db_path = os.path.join(data_dir, "users.db")
     frontend = os.path.join(base_dir, "frontend")
 
+    on_render = bool(os.getenv("RENDER"))
+    secure_default = "1" if on_render else "0"
     app.secret_key = _secret(data_dir)
     app.config.update(
+        SESSION_COOKIE_NAME="stocksense_session",
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
-        SESSION_COOKIE_SECURE=os.getenv("COOKIE_SECURE") == "1",
-        PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+        SESSION_COOKIE_SECURE=os.getenv("COOKIE_SECURE", secure_default) == "1",
+        PERMANENT_SESSION_LIFETIME=timedelta(days=REMEMBER_DAYS),
+        SESSION_REFRESH_EACH_REQUEST=True,   # active users stay signed in
     )
-    dummy_hash = generate_password_hash("not-a-real-password")   # keeps timing equal for unknown users
+    dummy_hash = generate_password_hash("not-a-real-password")   # equal timing for unknown users
 
     def query(sql, args=(), commit=False):
-        with closing(sqlite3.connect(db_path)) as conn:
+        with closing(sqlite3.connect(db_path, timeout=10)) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.execute(sql, args)
             if commit:
                 conn.commit()
-            return cur.fetchone() if not commit else cur.lastrowid
+                return cur.lastrowid
+            return cur.fetchone()
 
     query("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, "
           "username TEXT UNIQUE NOT NULL COLLATE NOCASE, pw_hash TEXT NOT NULL, created_at TEXT NOT NULL)",
@@ -99,6 +113,13 @@ def init_auth(app, base_dir):
             return jsonify(error="Not signed in"), 401
         return redirect("/login")
 
+    @app.after_request
+    def no_cache(resp):
+        # stop the browser showing a stale login/app page when the user presses Back
+        if resp.mimetype == "text/html" or request.path.startswith("/api/") or request.path == "/login":
+            resp.headers["Cache-Control"] = "no-store"
+        return resp
+
     @app.get("/login")
     def login_page():
         if session.get("uid"):
@@ -109,9 +130,9 @@ def init_auth(app, base_dir):
     def healthz():
         return "ok"
 
-    def sign_in(uid, username):
+    def sign_in(uid, username, remember):
         session.clear()
-        session.permanent = True
+        session.permanent = bool(remember)   # True = 30-day cookie, False = until browser closes
         session["uid"], session["user"] = uid, username
 
     @app.post("/api/register")
@@ -127,14 +148,16 @@ def init_auth(app, base_dir):
             return jsonify(error="Username: 3-30 letters, numbers, dot, dash or underscore."), 400
         if not 8 <= len(pw) <= 128:
             return jsonify(error="Password must be 8 to 128 characters."), 400
+        if "confirm" in d and str(d.get("confirm")) != pw:
+            return jsonify(error="Passwords do not match."), 400
         try:
             uid = query("INSERT INTO users (username, pw_hash, created_at) VALUES (?, ?, ?)",
                         (user, generate_password_hash(pw), datetime.now().isoformat(timespec="seconds")),
                         commit=True)
         except sqlite3.IntegrityError:
-            return jsonify(error="That username is already taken."), 409
-        sign_in(uid, user)
-        return jsonify(ok=True, username=user)
+            return jsonify(error="That username is already taken. Use Sign in instead."), 409
+        sign_in(uid, user, d.get("remember", True))
+        return jsonify(ok=True, username=user, created=True)
 
     @app.post("/api/login")
     def login():
@@ -147,10 +170,10 @@ def init_auth(app, base_dir):
         ok = check_password_hash(row["pw_hash"] if row else dummy_hash, pw) and row is not None
         if not ok:
             _fail(ip)
-            return jsonify(error="Wrong username or password."), 401
+            return jsonify(error="Wrong username or password. New here? Use Create account."), 401
         _fails.pop(ip, None)
-        sign_in(row["id"], row["username"])
-        return jsonify(ok=True, username=row["username"])
+        sign_in(row["id"], row["username"], d.get("remember", True))
+        return jsonify(ok=True, username=row["username"], created=False)
 
     @app.post("/api/logout")
     def logout():
