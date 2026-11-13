@@ -3,123 +3,598 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>StockSense — Sign in</title>
+<title>StockSense — Sign In & Register</title>
 <script>
-  try { document.documentElement.dataset.theme = localStorage.getItem('theme') ||
-        (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } catch (e) {}
+  try {
+    document.documentElement.dataset.theme = localStorage.getItem('theme') ||
+      (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  } catch (e) {}
 </script>
 <style>
-  :root { --bg:#f4f6f8; --card:#fff; --text:#1a1a1a; --border:#e3e7ea; --muted:#8a97a0; --err:#e5484d; color-scheme: light; }
-  [data-theme="dark"] { --bg:#0e1318; --card:#151b22; --text:#e6edf3; --border:#27313b; --muted:#8b98a5; color-scheme: dark; }
+  :root {
+    --bg: #f4f6f8;
+    --card: #ffffff;
+    --text: #1a1a1a;
+    --border: #e3e7ea;
+    --muted: #8a97a0;
+    --muted-dark: #5f6b73;
+    --err: #e5484d;
+    --err-bg: #ffe9e9;
+    --success: #00a86b;
+    --success-bg: #e4fff2;
+    --primary: #00b386;
+    --primary-hover: #009e76;
+    --input-bg: #f9fbfc;
+    color-scheme: light;
+  }
+  [data-theme="dark"] {
+    --bg: #0e1318;
+    --card: #151b22;
+    --text: #e6edf3;
+    --border: #27313b;
+    --muted: #8b98a5;
+    --muted-dark: #a6b2bd;
+    --err: #f87171;
+    --err-bg: #3a1a1d;
+    --success: #34d399;
+    --success-bg: #0f3326;
+    --primary: #00b386;
+    --primary-hover: #009e76;
+    --input-bg: #0d1117;
+    color-scheme: dark;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text);
-         min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
-  .box { width: 100%; max-width: 380px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 28px 26px; }
-  .brand { font-size: 26px; font-weight: 800; color: #00b386; text-align: center; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+  }
+  .box {
+    width: 100%;
+    max-width: 420px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 32px 28px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  }
+  .brand {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--primary);
+    text-align: center;
+    letter-spacing: -0.5px;
+  }
   .brand span { color: var(--text); }
-  .sub { text-align: center; font-size: 12px; color: var(--muted); margin: 4px 0 20px; }
-  .tabs { display: flex; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
-  .tabs button { flex: 1; background: none; border: 0; padding: 10px; font-size: 14px; font-weight: 700; color: var(--muted);
-                 cursor: pointer; border-bottom: 3px solid transparent; }
-  .tabs button.on { color: var(--text); border-bottom-color: #00b386; }
-  .hint { font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
-  label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; }
-  input[type=text], input[type=password] { width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid var(--border); border-radius: 8px;
-          background: var(--bg); color: var(--text); }
-  input:focus { outline: 2px solid #00b386; outline-offset: -1px; }
-  .remember { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; color: var(--muted); cursor: pointer; }
-  .go { width: 100%; margin-top: 16px; padding: 11px; border: 0; border-radius: 8px; background: #00b386; color: #fff;
-        font-size: 14px; font-weight: 700; cursor: pointer; }
-  .go:disabled { opacity: .6; cursor: wait; }
-  .err { color: var(--err); font-size: 12.5px; margin-top: 12px; min-height: 16px; }
-  .theme { display: block; margin: 16px auto 0; background: none; border: 1px solid var(--border); color: var(--muted);
-           border-radius: 6px; padding: 3px 12px; font-size: 11.5px; cursor: pointer; }
-  .hide { display: none; }
+  .sub {
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--muted);
+    margin: 4px 0 24px;
+  }
+  .tabs {
+    display: flex;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+  }
+  .tabs button {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 12px 6px;
+    font-size: 14.5px;
+    font-weight: 700;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    transition: all 0.2s ease;
+  }
+  .tabs button:hover { color: var(--text); }
+  .tabs button.on {
+    color: var(--text);
+    border-bottom-color: var(--primary);
+  }
+  .form-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .form-desc {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  .alert {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 16px;
+    line-height: 1.4;
+  }
+  .alert-err {
+    background: var(--err-bg);
+    color: var(--err);
+    border: 1px solid var(--err);
+  }
+  .alert-success {
+    background: var(--success-bg);
+    color: var(--success);
+    border: 1px solid var(--success);
+  }
+  .alert.hide { display: none; }
+  .field { margin-bottom: 15px; }
+  label {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--muted-dark);
+    margin-bottom: 6px;
+  }
+  .input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  input[type=text],
+  input[type=email],
+  input[type=password] {
+    width: 100%;
+    padding: 11px 13px;
+    font-size: 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--input-bg);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  input[type=text]:focus,
+  input[type=email]:focus,
+  input[type=password]:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0, 179, 134, 0.15);
+  }
+  .pw-input { padding-right: 42px !important; }
+  .pw-toggle {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: color 0.15s ease;
+  }
+  .pw-toggle:hover { color: var(--text); }
+  .pw-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .remember {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+    margin: 12px 0 18px;
+  }
+  .remember input {
+    cursor: pointer;
+    accent-color: var(--primary);
+    width: 16px;
+    height: 16px;
+  }
+  .go {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    background: var(--primary);
+    color: #ffffff;
+    font-size: 14.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s ease, opacity 0.2s ease;
+  }
+  .go:hover { background: var(--primary-hover); }
+  .go:disabled { opacity: 0.65; cursor: wait; }
+  .switch-row {
+    margin-top: 18px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .switch-btn {
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 13px;
+    margin-left: 4px;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .switch-btn:hover { color: var(--primary-hover); }
+  .footer-bar {
+    margin-top: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    max-width: 420px;
+    padding: 0 4px;
+  }
+  .theme-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .theme-btn:hover {
+    color: var(--text);
+    border-color: var(--muted);
+  }
+  .legal {
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .hide { display: none !important; }
 </style>
 </head>
 <body>
+
 <div class="box">
   <div class="brand">Stock<span>Sense</span></div>
   <div class="sub">Cloud-Based Stock Market Prediction System</div>
+
   <div class="tabs">
-    <button type="button" id="tLogin" class="on" onclick="setMode('login')">Sign in</button>
-    <button type="button" id="tReg" onclick="setMode('register')">Create account</button>
-  </div>
-  <div class="hint" id="hint">Sign in with your existing account.</div>
-
-  <label for="u">Username</label>
-  <input type="text" id="u" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus>
-  <label for="p">Password</label>
-  <input type="password" id="p" autocomplete="current-password">
-
-  <div id="regWrap" class="hide">
-    <label for="p2">Confirm password</label>
-    <input type="password" id="p2" autocomplete="new-password">
-    <label for="c">Invite code (if you were given one)</label>
-    <input type="text" id="c" autocomplete="off">
+    <button type="button" id="tabLogin" class="on" onclick="setMode('login')">Sign In</button>
+    <button type="button" id="tabRegister" onclick="setMode('register')">Create Account</button>
   </div>
 
-  <label class="remember"><input type="checkbox" id="rem" checked> Keep me signed in on this device</label>
-  <button type="button" class="go" id="go" onclick="doSubmit()">Sign in</button>
-  <div class="err" id="err"></div>
-  <button type="button" class="theme" id="themeBtn" onclick="toggleTheme()">Dark mode</button>
+  <div id="alertSuccess" class="alert alert-success hide">
+    <svg style="width:18px; height:18px; flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 6L9 17l-5-5"/>
+    </svg>
+    <span id="successMsg"></span>
+  </div>
+
+  <div id="alertErr" class="alert alert-err hide">
+    <svg style="width:18px; height:18px; flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+    <span id="errMsg"></span>
+  </div>
+
+  <!-- LOGIN FORM -->
+  <form id="loginForm" onsubmit="handleLogin(event)">
+    <div class="form-title">Welcome back</div>
+    <div class="form-desc">Sign in with your registered email and password.</div>
+
+    <div class="field">
+      <label for="loginEmail">Email Address</label>
+      <input type="email" id="loginEmail" autocomplete="email" placeholder="you@example.com" spellcheck="false" required>
+    </div>
+
+    <div class="field">
+      <label for="loginPassword">Password</label>
+      <div class="input-wrap">
+        <input type="password" id="loginPassword" class="pw-input" autocomplete="current-password" placeholder="••••••••" required>
+        <button type="button" class="pw-toggle" onclick="togglePasswordVisibility('loginPassword', this)" aria-label="Toggle password visibility">
+          <svg class="eye-open" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-closed hide" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <label class="remember">
+      <input type="checkbox" id="loginRemember" checked> Keep me signed in on this device
+    </label>
+
+    <button type="submit" class="go" id="loginBtn">Sign In</button>
+
+    <div class="switch-row">
+      Don't have an account?
+      <button type="button" class="switch-btn" onclick="setMode('register')">Create account</button>
+    </div>
+  </form>
+
+  <!-- REGISTRATION FORM -->
+  <form id="registerForm" class="hide" onsubmit="handleRegister(event)">
+    <div class="form-title">Create an account</div>
+    <div class="form-desc">Register to access market analytics and AI predictions.</div>
+
+    <div class="field">
+      <label for="regName">Full Name</label>
+      <input type="text" id="regName" autocomplete="name" placeholder="e.g. Rahul Sharma" spellcheck="false" required>
+    </div>
+
+    <div class="field">
+      <label for="regEmail">Email Address</label>
+      <input type="email" id="regEmail" autocomplete="email" placeholder="you@example.com" spellcheck="false" required>
+    </div>
+
+    <div class="field">
+      <label for="regPassword">Password</label>
+      <div class="input-wrap">
+        <input type="password" id="regPassword" class="pw-input" autocomplete="new-password" placeholder="At least 8 characters" required>
+        <button type="button" class="pw-toggle" onclick="togglePasswordVisibility('regPassword', this)" aria-label="Toggle password visibility">
+          <svg class="eye-open" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-closed hide" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="regConfirm">Confirm Password</label>
+      <div class="input-wrap">
+        <input type="password" id="regConfirm" class="pw-input" autocomplete="new-password" placeholder="Re-enter password" required>
+        <button type="button" class="pw-toggle" onclick="togglePasswordVisibility('regConfirm', this)" aria-label="Toggle password visibility">
+          <svg class="eye-open" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-closed hide" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="field hide" id="codeWrap">
+      <label for="regCode">Invite Code</label>
+      <input type="text" id="regCode" autocomplete="off" placeholder="Enter invite code if required">
+    </div>
+
+    <button type="submit" class="go" id="regBtn">Create Account</button>
+
+    <div class="switch-row">
+      Already have an account?
+      <button type="button" class="switch-btn" onclick="setMode('login')">Sign in</button>
+    </div>
+  </form>
 </div>
+
+<div class="footer-bar">
+  <button type="button" class="theme-btn" id="themeBtn" onclick="toggleTheme()">Dark Mode</button>
+  <span class="legal">StockSense &copy; 2026</span>
+</div>
+
 <script>
-  let m = 'login';
+  let mode = 'login';
   const $ = id => document.getElementById(id);
 
-  function setMode(x) {
-    m = x;
-    const reg = x === 'register';
-    $('tLogin').classList.toggle('on', !reg);
-    $('tReg').classList.toggle('on', reg);
-    $('regWrap').classList.toggle('hide', !reg);
-    $('go').textContent = reg ? 'Create account' : 'Sign in';
-    $('hint').textContent = reg ? 'New here? Pick a username and password.' : 'Sign in with your existing account.';
-    $('p').autocomplete = reg ? 'new-password' : 'current-password';
-    $('p').value = ''; $('p2').value = '';
-    $('err').textContent = '';
+  function clearAlerts() {
+    $('alertErr').classList.add('hide');
+    $('alertSuccess').classList.add('hide');
+    $('errMsg').textContent = '';
+    $('successMsg').textContent = '';
   }
 
-  async function doSubmit() {
-    const reg = m === 'register';
-    $('err').textContent = '';
-    if (!$('u').value.trim() || !$('p').value) { $('err').textContent = 'Enter username and password.'; return; }
-    if (reg && $('p').value !== $('p2').value) { $('err').textContent = 'Passwords do not match.'; return; }
-    $('go').disabled = true;
-    const body = { username: $('u').value.trim(), password: $('p').value, remember: $('rem').checked };
-    if (reg) { body.confirm = $('p2').value; body.code = $('c').value; }
+  function showError(msg) {
+    $('alertSuccess').classList.add('hide');
+    $('errMsg').textContent = msg;
+    $('alertErr').classList.remove('hide');
+  }
+
+  function showSuccess(msg) {
+    $('alertErr').classList.add('hide');
+    $('successMsg').textContent = msg;
+    $('alertSuccess').classList.remove('hide');
+  }
+
+  function setMode(newMode) {
+    mode = newMode;
+    const isReg = (newMode === 'register');
+    $('tabLogin').classList.toggle('on', !isReg);
+    $('tabRegister').classList.toggle('on', isReg);
+    $('loginForm').classList.toggle('hide', isReg);
+    $('registerForm').classList.toggle('hide', !isReg);
+
+    // Update document title
+    document.title = isReg ? 'StockSense — Create Account' : 'StockSense — Sign In';
+
+    // Reset password inputs on mode change
+    $('loginPassword').value = '';
+    $('regPassword').value = '';
+    $('regConfirm').value = '';
+
+    if (isReg) {
+      clearAlerts();
+      setTimeout(() => $('regName').focus(), 50);
+    } else {
+      setTimeout(() => {
+        if ($('loginEmail').value) {
+          $('loginPassword').focus();
+        } else {
+          $('loginEmail').focus();
+        }
+      }, 50);
+    }
+  }
+
+  function togglePasswordVisibility(inputId, btn) {
+    const input = $(inputId);
+    const eyeOpen = btn.querySelector('.eye-open');
+    const eyeClosed = btn.querySelector('.eye-closed');
+    if (input.type === 'password') {
+      input.type = 'text';
+      eyeOpen.classList.add('hide');
+      eyeClosed.classList.remove('hide');
+    } else {
+      input.type = 'password';
+      eyeOpen.classList.remove('hide');
+      eyeClosed.classList.add('hide');
+    }
+  }
+
+  function isValidEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
+  // REGISTRATION HANDLER
+  async function handleRegister(event) {
+    event.preventDefault();
+    clearAlerts();
+
+    const fullName = $('regName').value.trim();
+    const email = $('regEmail').value.trim();
+    const password = $('regPassword').value;
+    const confirm = $('regConfirm').value;
+    const code = $('regCode').value.trim();
+
+    // Client-side Validation
+    if (!fullName || fullName.length < 2) {
+      showError('Please enter your full name (minimum 2 characters).');
+      $('regName').focus();
+      return;
+    }
+    if (!email || !isValidEmail(email)) {
+      showError('Please enter a valid email address.');
+      $('regEmail').focus();
+      return;
+    }
+    if (password.length < 8) {
+      showError('Password must be at least 8 characters long.');
+      $('regPassword').focus();
+      return;
+    }
+    if (password !== confirm) {
+      showError('Passwords do not match.');
+      $('regConfirm').focus();
+      return;
+    }
+
+    $('regBtn').disabled = true;
+    $('regBtn').textContent = 'Creating Account…';
+
     try {
-      const res = await fetch(reg ? '/api/register' : '/api/login', {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: fullName,
+          email: email,
+          password: password,
+          confirm: confirm,
+          code: code
+        })
       });
+
       const data = await res.json().catch(() => ({}));
-      if (res.ok) { location.replace('/'); return; }
-      $('err').textContent = data.error || 'Something went wrong (HTTP ' + res.status + ').';
-    } catch (e) { $('err').textContent = 'Cannot reach the server.'; }
-    $('go').disabled = false;
+
+      if (res.ok && data.ok) {
+        // SUCCESS: Do NOT automatically log in. Switch to login view, pre-fill email, show required message.
+        setMode('login');
+        $('loginEmail').value = email;
+        $('loginPassword').value = '';
+        showSuccess('Account created successfully! Please login.');
+        $('loginPassword').focus();
+      } else {
+        showError(data.error || 'Registration failed. Please try again.');
+      }
+    } catch (e) {
+      showError('Unable to connect to the server. Please check your connection.');
+    } finally {
+      $('regBtn').disabled = false;
+      $('regBtn').textContent = 'Create Account';
+    }
   }
 
-  document.addEventListener('keydown', e => { if (e.key === 'Enter') doSubmit(); });
+  // LOGIN HANDLER
+  async function handleLogin(event) {
+    event.preventDefault();
+    clearAlerts();
 
-  // Already signed in (also when arriving via Back button)? Skip the login page.
-  async function checkSession() {
+    const email = $('loginEmail').value.trim();
+    const password = $('loginPassword').value;
+    const remember = $('loginRemember').checked;
+
+    if (!email || !isValidEmail(email)) {
+      showError('Please enter a valid email address.');
+      $('loginEmail').focus();
+      return;
+    }
+    if (!password) {
+      showError('Please enter your password.');
+      $('loginPassword').focus();
+      return;
+    }
+
+    $('loginBtn').disabled = true;
+    $('loginBtn').textContent = 'Signing In…';
+
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email,
+          password: password,
+          remember: remember
+        })
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.ok) {
+        // Correct credentials -> Redirect to Dashboard
+        location.replace('/');
+      } else {
+        // Display specific error (e.g. "Account not found. Please create an account." or "Invalid email or password.")
+        showError(data.error || 'Invalid email or password.');
+      }
+    } catch (e) {
+      showError('Unable to connect to the server. Please check your connection.');
+    } finally {
+      $('loginBtn').disabled = false;
+      $('loginBtn').textContent = 'Sign In';
+    }
+  }
+
+  // Check if session is already active
+  async function checkExistingSession() {
     try {
       const r = await fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' });
       if (r.ok) location.replace('/');
     } catch (e) {}
   }
-  checkSession();
-  window.addEventListener('pageshow', e => { if (e.persisted) checkSession(); });
+  checkExistingSession();
+  window.addEventListener('pageshow', e => { if (e.persisted) checkExistingSession(); });
 
-  function isDark() { return document.documentElement.dataset.theme === 'dark'; }
-  function sync() { $('themeBtn').textContent = isDark() ? 'Light mode' : 'Dark mode'; }
-  function toggleTheme() {
-    const t = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = t;
-    try { localStorage.setItem('theme', t); } catch (e) {} sync();
+  // Handle URL mode query or path
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('mode') === 'register' || window.location.pathname === '/register') {
+    setMode('register');
   }
-  sync();
+
+  // Dark/Light Theme Support
+  function isDark() { return document.documentElement.dataset.theme === 'dark'; }
+  function syncThemeBtn() { $('themeBtn').textContent = isDark() ? 'Light Mode' : 'Dark Mode'; }
+  function toggleTheme() {
+    const next = isDark() ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('theme', next); } catch (e) {}
+    syncThemeBtn();
+  }
+  syncThemeBtn();
 </script>
 </body>
 </html>
