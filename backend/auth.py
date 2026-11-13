@@ -2,17 +2,12 @@
 backend/auth.py
 Login / register / logout for StockSense.
  * Users stored in SQLite with salted password hashes.
- * Every page and /api route needs a signed-in session, except /login, /healthz and the auth routes.
- * 5 wrong passwords from one address lock that address for 10 minutes.
- * POST requests must be JSON (simple CSRF protection).
-
-.env / Render environment variables:
-   SECRET_KEY    REQUIRED on Render - fixed session signing key (else everyone is logged out on each restart)
-   DATA_DIR      folder for users.db. On Render, attach a Persistent Disk (e.g. mount /var/data)
-                 and set DATA_DIR=/var/data. Without it the database is wiped on every deploy/restart.
-   ALLOW_SIGNUP  1 (default) lets people register, 0 closes registration
-   SIGNUP_CODE   if set, registration also needs this invite code
-   COOKIE_SECURE 1/0 - defaults to 1 automatically on Render (HTTPS)
+ * Registration requires Full Name, Email, Password, Confirm Password.
+ * Registration does NOT automatically log in; redirects to Login page.
+ * Login authenticates via Email and Password.
+ * Every page and /api route needs a signed-in session, except /login, /register, /healthz, and auth endpoints.
+ * 5 wrong passwords from one IP lock that IP for 10 minutes.
+ * POST requests must be JSON (CSRF protection).
 """
 import os
 import re
@@ -26,8 +21,8 @@ from flask import jsonify, redirect, request, send_from_directory, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
-OPEN_PATHS = {"/login", "/healthz", "/api/login", "/api/register", "/api/me"}
-USER_RE = re.compile(r"^[A-Za-z0-9_.-]{3,30}$")
+OPEN_PATHS = {"/login", "/register", "/healthz", "/api/login", "/api/register", "/api/me"}
+EMAIL_RE = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 MAX_FAILS, WINDOW = 5, 600
 REMEMBER_DAYS = 30
 _fails = {}   # ip -> [count, first_failure_time]
@@ -68,6 +63,29 @@ def _fail(ip):
         rec[0] += 1
 
 
+def _init_db(db_path):
+    """Initializes and migrates the database schema safely while preserving existing data."""
+    with closing(sqlite3.connect(db_path, timeout=10)) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                pw_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        cur.execute("PRAGMA table_info(users)")
+        cols = {row["name"].lower(): row for row in cur.fetchall()}
+        if "full_name" not in cols:
+            cur.execute("ALTER TABLE users ADD COLUMN full_name TEXT")
+        if "email" not in cols:
+            cur.execute("ALTER TABLE users ADD COLUMN email TEXT COLLATE NOCASE")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+        conn.commit()
+
+
 def init_auth(app, base_dir):
     # Render (and most hosts) put a proxy in front: trust its forwarded IP / HTTPS headers
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
@@ -76,6 +94,8 @@ def init_auth(app, base_dir):
     os.makedirs(data_dir, exist_ok=True)
     db_path = os.path.join(data_dir, "users.db")
     frontend = os.path.join(base_dir, "frontend")
+
+    _init_db(db_path)
 
     on_render = bool(os.getenv("RENDER"))
     secure_default = "1" if on_render else "0"
@@ -88,7 +108,6 @@ def init_auth(app, base_dir):
         PERMANENT_SESSION_LIFETIME=timedelta(days=REMEMBER_DAYS),
         SESSION_REFRESH_EACH_REQUEST=True,   # active users stay signed in
     )
-    dummy_hash = generate_password_hash("not-a-real-password")   # equal timing for unknown users
 
     def query(sql, args=(), commit=False):
         with closing(sqlite3.connect(db_path, timeout=10)) as conn:
@@ -98,10 +117,6 @@ def init_auth(app, base_dir):
                 conn.commit()
                 return cur.lastrowid
             return cur.fetchone()
-
-    query("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, "
-          "username TEXT UNIQUE NOT NULL COLLATE NOCASE, pw_hash TEXT NOT NULL, created_at TEXT NOT NULL)",
-          commit=True)
 
     @app.before_request
     def gate():
@@ -115,9 +130,11 @@ def init_auth(app, base_dir):
 
     @app.after_request
     def no_cache(resp):
-        # stop the browser showing a stale login/app page when the user presses Back
-        if resp.mimetype == "text/html" or request.path.startswith("/api/") or request.path == "/login":
-            resp.headers["Cache-Control"] = "no-store"
+        # Stop browser from showing stale login/app page when pressing Back
+        if resp.mimetype == "text/html" or request.path.startswith("/api/") or request.path in ("/login", "/register"):
+            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            resp.headers["Pragma"] = "no-cache"
+            resp.headers["Expires"] = "0"
         return resp
 
     @app.get("/login")
@@ -126,62 +143,120 @@ def init_auth(app, base_dir):
             return redirect("/")
         return send_from_directory(frontend, "login.html")
 
+    @app.get("/register")
+    def register_page():
+        if session.get("uid"):
+            return redirect("/")
+        return send_from_directory(frontend, "login.html")
+
     @app.get("/healthz")
     def healthz():
         return "ok"
 
-    def sign_in(uid, username, remember):
+    def sign_in(uid, name, email=None, remember=True):
         session.clear()
         session.permanent = bool(remember)   # True = 30-day cookie, False = until browser closes
-        session["uid"], session["user"] = uid, username
+        session["uid"] = uid
+        session["user"] = name
+        if email:
+            session["email"] = email
 
     @app.post("/api/register")
     def register():
         if os.getenv("ALLOW_SIGNUP", "1") != "1":
             return jsonify(error="Sign-up is closed."), 403
+
         d = request.get_json(silent=True) or {}
         code = os.getenv("SIGNUP_CODE", "")
         if code and not secrets.compare_digest(str(d.get("code", "")), code):
             return jsonify(error="Wrong invite code."), 403
-        user, pw = str(d.get("username", "")).strip(), str(d.get("password", ""))
-        if not USER_RE.match(user):
-            return jsonify(error="Username: 3-30 letters, numbers, dot, dash or underscore."), 400
+
+        full_name = str(d.get("full_name") or d.get("name") or "").strip()
+        email = str(d.get("email") or "").strip().lower()
+        pw = str(d.get("password") or "")
+        confirm = str(d.get("confirm") or "")
+
+        # Form Validation
+        if not full_name or len(full_name) < 2 or len(full_name) > 100:
+            return jsonify(error="Please enter your full name (2 to 100 characters)."), 400
+
+        if not email or not EMAIL_RE.match(email) or len(email) > 120:
+            return jsonify(error="Please enter a valid email address."), 400
+
         if not 8 <= len(pw) <= 128:
-            return jsonify(error="Password must be 8 to 128 characters."), 400
-        if "confirm" in d and str(d.get("confirm")) != pw:
+            return jsonify(error="Password must be between 8 and 128 characters."), 400
+
+        if pw != confirm:
             return jsonify(error="Passwords do not match."), 400
+
+        # Check duplicate email or username
+        existing = query(
+            "SELECT id FROM users WHERE email = ? COLLATE NOCASE OR username = ? COLLATE NOCASE",
+            (email, email)
+        )
+        if existing:
+            return jsonify(error="Email is already registered. Please login."), 409
+
+        now_str = datetime.now().isoformat(timespec="seconds")
         try:
-            uid = query("INSERT INTO users (username, pw_hash, created_at) VALUES (?, ?, ?)",
-                        (user, generate_password_hash(pw), datetime.now().isoformat(timespec="seconds")),
-                        commit=True)
+            query(
+                "INSERT INTO users (username, full_name, email, pw_hash, created_at) VALUES (?, ?, ?, ?, ?)",
+                (email, full_name, email, generate_password_hash(pw), now_str),
+                commit=True
+            )
         except sqlite3.IntegrityError:
-            return jsonify(error="That username is already taken. Use Sign in instead."), 409
-        sign_in(uid, user, d.get("remember", True))
-        return jsonify(ok=True, username=user, created=True)
+            return jsonify(error="Email is already registered. Please login."), 409
+
+        # Crucial requirement: Do NOT log in the user automatically.
+        return jsonify(
+            ok=True,
+            message="Account created successfully! Please login.",
+            email=email
+        )
 
     @app.post("/api/login")
     def login():
         ip = _ip()
         if _locked(ip):
             return jsonify(error="Too many wrong attempts. Try again in 10 minutes."), 429
+
         d = request.get_json(silent=True) or {}
-        user, pw = str(d.get("username", "")).strip(), str(d.get("password", ""))
-        row = query("SELECT id, username, pw_hash FROM users WHERE username = ?", (user,))
-        ok = check_password_hash(row["pw_hash"] if row else dummy_hash, pw) and row is not None
-        if not ok:
+        email = str(d.get("email") or d.get("username") or "").strip().lower()
+        pw = str(d.get("password") or "")
+
+        if not email or not pw:
+            return jsonify(error="Please enter your email and password."), 400
+
+        # Look up user by registered email (or legacy username)
+        row = query(
+            "SELECT id, username, full_name, email, pw_hash FROM users "
+            "WHERE email = ? COLLATE NOCASE OR (email IS NULL AND username = ? COLLATE NOCASE)",
+            (email, email)
+        )
+
+        if not row:
+            return jsonify(error="Account not found. Please create an account."), 404
+
+        if not check_password_hash(row["pw_hash"], pw):
             _fail(ip)
-            return jsonify(error="Wrong username or password. New here? Use Create account."), 401
+            return jsonify(error="Invalid email or password."), 401
+
         _fails.pop(ip, None)
-        sign_in(row["id"], row["username"], d.get("remember", True))
-        return jsonify(ok=True, username=row["username"], created=False)
+        display_name = row["full_name"] or row["username"] or row["email"]
+        sign_in(row["id"], display_name, email=row["email"] or row["username"], remember=d.get("remember", True))
+        return jsonify(ok=True, username=display_name, email=row["email"], created=False)
 
     @app.post("/api/logout")
     def logout():
         session.clear()
-        return jsonify(ok=True)
+        return jsonify(ok=True, message="Logged out successfully")
 
     @app.get("/api/me")
     def me():
         if not session.get("uid"):
             return jsonify(error="Not signed in"), 401
-        return jsonify(username=session.get("user"))
+        return jsonify(
+            username=session.get("user"),
+            email=session.get("email"),
+            full_name=session.get("user")
+        )
