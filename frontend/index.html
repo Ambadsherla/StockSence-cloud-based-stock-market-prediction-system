@@ -210,9 +210,7 @@ const lakh = v => (Number(v || 0) / 1e5).toFixed(2);
 function intervalLabel(itv) {
   const map = {
     '1m': '1-minute',
-    '3m': '3-minute',
     '5m': '5-minute',
-    '10m': '10-minute',
     '15m': '15-minute',
     '30m': '30-minute',
     '1h': '1-hour',
@@ -326,9 +324,7 @@ function renderMain(ticker, history, strategies, backtest) {
       <div class="chart-toolbar">
         <div class="tf-group" id="tfGroup">
           <button class="tf-btn ${currentInterval === '1m' ? 'active' : ''}" data-interval="1m" onclick="setTimeframe('1m')" title="1-minute candles">1 min</button>
-          <button class="tf-btn disabled" disabled title="3 min interval not supported by market data source">3 min</button>
           <button class="tf-btn ${currentInterval === '5m' ? 'active' : ''}" data-interval="5m" onclick="setTimeframe('5m')" title="5-minute candles">5 min</button>
-          <button class="tf-btn disabled" disabled title="10 min interval not supported by market data source">10 min</button>
           <button class="tf-btn ${currentInterval === '15m' ? 'active' : ''}" data-interval="15m" onclick="setTimeframe('15m')" title="15-minute candles">15 min</button>
           <button class="tf-btn ${currentInterval === '30m' ? 'active' : ''}" data-interval="30m" onclick="setTimeframe('30m')" title="30-minute candles">30 min</button>
           <button class="tf-btn ${currentInterval === '1h' ? 'active' : ''}" data-interval="1h" onclick="setTimeframe('1h')" title="1-hour candles">1 hour</button>
@@ -507,7 +503,6 @@ function updateTimeframeButtons(activeInterval) {
 }
 
 async function setTimeframe(itv) {
-  if (itv === '3m' || itv === '10m') return;
   if (!currentTicker) return;
   if (itv === currentInterval && chartInstance) return;
 
