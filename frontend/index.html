@@ -56,9 +56,19 @@
   .badge.BUY { background: var(--buy-bg); color: #00a86b; }
   .badge.SELL { background: var(--sell-bg); color: #e5484d; }
   .badge.HOLD { background: var(--line); color: var(--muted); }
-  .legend { display: flex; gap: 16px; font-size: 11.5px; color: var(--muted2); margin-bottom: 10px; }
+  .legend { display: flex; gap: 16px; font-size: 11.5px; color: var(--muted2); align-items: center; }
   .legend span { display: flex; align-items: center; gap: 5px; }
   .legend .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .chart-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0 12px; }
+  .tf-group { display: inline-flex; background: var(--soft); border: 1px solid var(--border); border-radius: 8px; padding: 3px; gap: 2px; overflow-x: auto; max-width: 100%; }
+  .tf-btn { background: transparent; border: none; border-radius: 6px; padding: 4px 10px; font-size: 11.5px; font-weight: 600; color: var(--muted2); cursor: pointer; transition: all 0.15s ease; white-space: nowrap; user-select: none; }
+  .tf-btn:hover:not(:disabled):not(.disabled) { color: var(--text); background: var(--card); }
+  .tf-btn.active { background: #00b386; color: #ffffff; font-weight: 700; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+  .tf-btn:disabled, .tf-btn.disabled { opacity: 0.45; cursor: not-allowed; color: var(--muted); }
+  .chart-wrap { position: relative; width: 100%; min-height: 460px; }
+  .chart-overlay { position: absolute; inset: 0; background: rgba(255, 255, 255, 0.75); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 5; border-radius: 8px; }
+  [data-theme="dark"] .chart-overlay { background: rgba(21, 27, 34, 0.8); }
+  .chart-err-banner { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--warn-bg); color: var(--warn-text); border: 1px solid var(--border); padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; z-index: 6; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 90%; text-align: center; }
   .scorecards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   .score-card h4 { font-size: 13.5px; margin-bottom: 10px; }
   .score-card .win { font-size: 24px; font-weight: 800; color: #00b386; }
@@ -150,6 +160,8 @@
     .oc-metrics, .plan, .pred-grid { grid-template-columns: 1fr; }
     .hdr-sub { display: none; }
     #priceChart { height: 340px; }
+    .chart-wrap { min-height: 340px; }
+    .chart-toolbar { flex-direction: column; align-items: flex-start; }
   }
 </style>
 </head>
@@ -175,10 +187,12 @@
 
 <script>
 let currentTicker = null;
+let currentInterval = '1d';
 let chartInstance = null;
 let candleSeries = null;
 let lastBar = null;
 let dataFresh = false;
+let chartErrTimeout = null;
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
@@ -192,6 +206,30 @@ async function fetchJson(url, opts) {
 }
 const num2 = v => Number(v || 0).toFixed(2);
 const lakh = v => (Number(v || 0) / 1e5).toFixed(2);
+
+function intervalLabel(itv) {
+  const map = {
+    '1m': '1-minute',
+    '3m': '3-minute',
+    '5m': '5-minute',
+    '10m': '10-minute',
+    '15m': '15-minute',
+    '30m': '30-minute',
+    '1h': '1-hour',
+    '1d': 'daily'
+  };
+  return map[itv] || itv;
+}
+
+function formatDataAsOf(dateStr, interval) {
+  if (!dateStr) return '';
+  const s = String(dateStr).trim();
+  const isIntraday = interval && interval !== '1d' && interval !== 'daily';
+  if (isIntraday && s.length > 10) {
+    return s.substring(0, 16);
+  }
+  return s.substring(0, 10);
+}
 
 async function loadWatchlist() {
   let data;
@@ -217,8 +255,9 @@ async function loadWatchlist() {
   if (!currentTicker && data.length) selectTicker(data[0].ticker);
 }
 
-// move the last candle with the live price (only when the CSV is current)
+// move the last candle with the live price (only when on daily timeframe and CSV is current)
 function tickLastCandle(price) {
+  if (currentInterval !== '1d') return;
   if (!dataFresh || !candleSeries || !lastBar || !(price > 0)) return;
   lastBar = { time: lastBar.time, open: lastBar.open,
               high: Math.max(lastBar.high, price), low: Math.min(lastBar.low, price), close: price };
@@ -231,11 +270,29 @@ async function selectTicker(ticker) {
   const active = document.getElementById('wl-' + ticker);
   if (active) active.classList.add('active');
   try {
-    const [history, strategies, backtest] = await Promise.all([
-      fetchJson('/api/history/' + ticker),
-      fetchJson('/api/strategies/' + ticker),
-      fetchJson('/api/backtest/' + ticker)
-    ]);
+    let history;
+    let strategies;
+    try {
+      [history, strategies] = await Promise.all([
+        fetchJson(`/api/history/${ticker}?interval=${currentInterval}`),
+        fetchJson(`/api/strategies/${ticker}?interval=${currentInterval}`)
+      ]);
+    } catch (itvErr) {
+      if (currentInterval !== '1d') {
+        console.warn(`Interval ${currentInterval} failed for ${ticker}, falling back to 1d:`, itvErr);
+        currentInterval = '1d';
+        [history, strategies] = await Promise.all([
+          fetchJson(`/api/history/${ticker}?interval=1d`),
+          fetchJson(`/api/strategies/${ticker}?interval=1d`)
+        ]);
+        setTimeout(() => {
+          showChartError(`Selected timeframe not available for ${ticker.replace('.NS','')}. Showing daily view instead.`);
+        }, 150);
+      } else {
+        throw itvErr;
+      }
+    }
+    const backtest = await fetchJson('/api/backtest/' + ticker);
     if (ticker !== currentTicker) return;
     renderMain(ticker, history, strategies, backtest);
   } catch (e) {
@@ -247,31 +304,49 @@ async function selectTicker(ticker) {
 function renderMain(ticker, history, strategies, backtest) {
   const last = history[history.length - 1];
   const latestPrice = Number(last.Close).toFixed(2);
-  const asOf = String(last.Date).substring(0, 10);
-  const ageDays = (Date.now() - new Date(asOf).getTime()) / 864e5;
+  const asOf = formatDataAsOf(last.Date, currentInterval);
+  const asOfDateOnly = String(last.Date).substring(0, 10);
+  const ageDays = (Date.now() - new Date(asOfDateOnly).getTime()) / 864e5;
   dataFresh = ageDays <= 4;
 
-  const badges = Object.keys(strategies).map(name => {
-    const sig = strategies[name].latest_signal;
-    return `<span class="badge ${esc(sig)}">${esc(name)}: ${esc(sig)}</span>`;
-  }).join(' ');
+  const isIntraday = currentInterval && currentInterval !== '1d';
+  const badges = makeStrategyBadgesHtml(strategies, currentInterval);
 
   const staleNote = dataFresh ? '' :
-    `<div class="notice warn">Price data is from <b>${esc(asOf)}</b> (${Math.round(ageDays)} days old). Signals and predictions use this data.
+    `<div class="notice warn">Price data is from <b>${esc(asOfDateOnly)}</b> (${Math.round(ageDays)} days old). Signals and predictions use this data.
      <button class="btn-small" onclick="refreshData()">Refresh data now</button></div>`;
 
   document.getElementById('main').innerHTML = `
     <div class="card">
       <div class="price-row"><h1>${esc(ticker.replace('.NS',''))}</h1>
         <div style="font-size:20px; font-weight:700;">₹${latestPrice}</div>
-        <div class="ai-meta">Data as of ${esc(asOf)}</div></div>
+        <div class="ai-meta" id="chartDataAsOf">Data as of ${esc(asOf)}</div></div>
       ${staleNote}
-      <div style="margin:10px 0 12px;">${badges}</div>
-      <div class="legend">
-        <span><i class="sw" style="background:#2962ff;"></i> MA 20</span>
-        <span><i class="sw" style="background:#ff6d00;"></i> MA 50</span>
+      <div style="margin:10px 0 12px;" id="chartBadges">${badges}</div>
+      <div class="chart-toolbar">
+        <div class="tf-group" id="tfGroup">
+          <button class="tf-btn ${currentInterval === '1m' ? 'active' : ''}" data-interval="1m" onclick="setTimeframe('1m')" title="1-minute candles">1 min</button>
+          <button class="tf-btn disabled" disabled title="3 min interval not supported by market data source">3 min</button>
+          <button class="tf-btn ${currentInterval === '5m' ? 'active' : ''}" data-interval="5m" onclick="setTimeframe('5m')" title="5-minute candles">5 min</button>
+          <button class="tf-btn disabled" disabled title="10 min interval not supported by market data source">10 min</button>
+          <button class="tf-btn ${currentInterval === '15m' ? 'active' : ''}" data-interval="15m" onclick="setTimeframe('15m')" title="15-minute candles">15 min</button>
+          <button class="tf-btn ${currentInterval === '30m' ? 'active' : ''}" data-interval="30m" onclick="setTimeframe('30m')" title="30-minute candles">30 min</button>
+          <button class="tf-btn ${currentInterval === '1h' ? 'active' : ''}" data-interval="1h" onclick="setTimeframe('1h')" title="1-hour candles">1 hour</button>
+          <button class="tf-btn ${currentInterval === '1d' ? 'active' : ''}" data-interval="1d" onclick="setTimeframe('1d')" title="Daily candles">1 day</button>
+        </div>
+        <div class="legend">
+          <span><i class="sw" style="background:#2962ff;"></i> MA 20</span>
+          <span><i class="sw" style="background:#ff6d00;"></i> MA 50</span>
+        </div>
       </div>
-      <div id="priceChart"></div>
+      <div class="chart-wrap">
+        <div id="chartErrBanner" class="chart-err-banner" style="display:none;"></div>
+        <div id="chartOverlay" class="chart-overlay" style="display:none;">
+          <span class="spinner" style="width:26px; height:26px; border-width:3px; margin:0 0 8px 0;"></span>
+          <span id="chartOverlayText" style="font-size:12.5px; font-weight:600; color:var(--text);">Loading…</span>
+        </div>
+        <div id="priceChart"></div>
+      </div>
     </div>
     <div class="card" id="predictionCard"><div class="loading">Loading prediction…</div></div>
     <div class="card" id="mlCard"><div class="loading">Loading ML strategy selection…</div></div>
@@ -279,7 +354,7 @@ function renderMain(ticker, history, strategies, backtest) {
     <div class="card" id="optionCard"><div class="loading">Loading option chain…</div></div>
     <div class="scorecards" id="scorecards"></div>`;
 
-  renderCandles(history);
+  renderCandles(history, isIntraday);
 
   const scoreEl = document.getElementById('scorecards');
   backtest.forEach(b => {
@@ -295,7 +370,7 @@ function renderMain(ticker, history, strategies, backtest) {
     scoreEl.appendChild(div);
   });
 
-  loadPrediction(ticker, asOf);
+  loadPrediction(ticker, asOfDateOnly);
   loadMl(ticker);
   loadAiInsight(ticker, false);
   loadOptionChain(ticker, false);
@@ -309,19 +384,40 @@ async function refreshData() {
 }
 
 // the chart library throws on duplicate / unsorted dates and null values
-function uniqueByDate(rows) {
-  const m = new Map();
-  rows.forEach(r => m.set(String(r.Date).substring(0, 10), r));
-  return [...m.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).map(([d, r]) => ({ d, r }));
+function parseCandleTime(dateVal, isIntraday) {
+  const s = String(dateVal || '').trim();
+  if (!isIntraday) {
+    return s.substring(0, 10);
+  }
+  const isoStr = s.includes(' ') ? s.replace(' ', 'T') : s;
+  const d = new Date(isoStr);
+  const ts = Math.floor(d.getTime() / 1000);
+  return isNaN(ts) ? s.substring(0, 10) : ts;
 }
 
-function renderCandles(history) {
+function uniqueByTime(rows, isIntraday) {
+  const m = new Map();
+  rows.forEach(r => {
+    const t = parseCandleTime(r.Date, isIntraday);
+    m.set(t, r);
+  });
+  return [...m.entries()].sort((a, b) => a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0)).map(([t, r]) => ({ t, r }));
+}
+
+function renderCandles(history, isIntraday) {
   if (chartInstance) { chartInstance.remove(); chartInstance = null; }
   const container = document.getElementById('priceChart');
+  if (!container) return;
 
+  const theme = chartTheme();
   chartInstance = LightweightCharts.createChart(container, {
     autoSize: true,                         // follows the container when the window is resized/split
-    ...chartTheme(),
+    ...theme,
+    timeScale: {
+      ...theme.timeScale,
+      timeVisible: !!isIntraday,
+      secondsVisible: false,
+    },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal }
   });
 
@@ -330,17 +426,138 @@ function renderCandles(history) {
     borderUpColor: '#00b386', borderDownColor: '#e5484d',
     wickUpColor: '#00b386', wickDownColor: '#e5484d'
   });
-  const rows = uniqueByDate(history);
-  const candles = rows.map(({ d, r }) => ({ time: d, open: r.Open, high: r.High, low: r.Low, close: r.Close }));
+  const rows = uniqueByTime(history, isIntraday);
+  const candles = rows.map(({ t, r }) => ({
+    time: t,
+    open: Number(r.Open),
+    high: Number(r.High),
+    low: Number(r.Low),
+    close: Number(r.Close)
+  }));
   candleSeries.setData(candles);
   lastBar = candles[candles.length - 1];
 
-  chartInstance.addLineSeries({ color: '#2962ff', lineWidth: 1 })
-    .setData(rows.filter(({ r }) => r.MA_20 != null).map(({ d, r }) => ({ time: d, value: r.MA_20 })));
-  chartInstance.addLineSeries({ color: '#ff6d00', lineWidth: 1 })
-    .setData(rows.filter(({ r }) => r.MA_50 != null).map(({ d, r }) => ({ time: d, value: r.MA_50 })));
+  const ma20Data = rows.filter(({ r }) => r.MA_20 != null && !isNaN(r.MA_20)).map(({ t, r }) => ({ time: t, value: Number(r.MA_20) }));
+  if (ma20Data.length > 0) {
+    chartInstance.addLineSeries({ color: '#2962ff', lineWidth: 1 }).setData(ma20Data);
+  }
+
+  const ma50Data = rows.filter(({ r }) => r.MA_50 != null && !isNaN(r.MA_50)).map(({ t, r }) => ({ time: t, value: Number(r.MA_50) }));
+  if (ma50Data.length > 0) {
+    chartInstance.addLineSeries({ color: '#ff6d00', lineWidth: 1 }).setData(ma50Data);
+  }
 
   chartInstance.timeScale().fitContent();
+}
+
+function makeStrategyBadgesHtml(strategies, interval) {
+  const isIntraday = interval && interval !== '1d' && interval !== 'daily';
+  const suffix = isIntraday ? ` (${interval})` : '';
+  return Object.keys(strategies || {}).map(name => {
+    const sig = strategies[name].latest_signal;
+    return `<span class="badge ${esc(sig)}">${esc(name)}${esc(suffix)}: ${esc(sig)}</span>`;
+  }).join(' ');
+}
+
+function updateStrategyBadges(strategies, isIntraday) {
+  const container = document.getElementById('chartBadges');
+  if (container) {
+    container.innerHTML = makeStrategyBadgesHtml(strategies, currentInterval);
+  }
+}
+
+function showChartLoading(show, itv) {
+  const el = document.getElementById('chartOverlay');
+  if (!el) return;
+  if (show) {
+    const textEl = document.getElementById('chartOverlayText');
+    if (textEl) textEl.textContent = `Fetching ${intervalLabel(itv)} candles…`;
+    el.style.display = 'flex';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function showChartError(msg) {
+  const el = document.getElementById('chartErrBanner');
+  if (!el) return;
+  if (chartErrTimeout) clearTimeout(chartErrTimeout);
+  el.innerHTML = `<span>⚠️ ${esc(msg)}</span> <button onclick="hideChartError()" style="background:none;border:none;color:inherit;cursor:pointer;font-weight:700;margin-left:8px;font-size:13px;" title="Dismiss">✕</button>`;
+  el.style.display = 'block';
+  chartErrTimeout = setTimeout(() => { hideChartError(); }, 6000);
+}
+
+function hideChartError() {
+  const el = document.getElementById('chartErrBanner');
+  if (el) el.style.display = 'none';
+  if (chartErrTimeout) { clearTimeout(chartErrTimeout); chartErrTimeout = null; }
+}
+
+function updateTimeframeButtons(activeInterval) {
+  document.querySelectorAll('.tf-group .tf-btn').forEach(btn => {
+    const itv = btn.getAttribute('data-interval');
+    if (itv) {
+      if (itv === activeInterval) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    }
+  });
+}
+
+async function setTimeframe(itv) {
+  if (itv === '3m' || itv === '10m') return;
+  if (!currentTicker) return;
+  if (itv === currentInterval && chartInstance) return;
+
+  const prevInterval = currentInterval;
+  currentInterval = itv;
+  updateTimeframeButtons(itv);
+  showChartLoading(true, itv);
+  hideChartError();
+
+  try {
+    const isIntraday = itv !== '1d';
+    const [history, strategies] = await Promise.all([
+      fetchJson(`/api/history/${currentTicker}?interval=${itv}`),
+      fetchJson(`/api/strategies/${currentTicker}?interval=${itv}`)
+    ]);
+    if (!history || !history.length) throw new Error('No candle data returned');
+
+    renderCandles(history, isIntraday);
+
+    const last = history[history.length - 1];
+    const dateEl = document.getElementById('chartDataAsOf');
+    if (dateEl && last) {
+      dateEl.textContent = 'Data as of ' + formatDataAsOf(last.Date, itv);
+    }
+    updateStrategyBadges(strategies, isIntraday);
+    showChartLoading(false);
+  } catch (err) {
+    console.warn(`Timeframe ${itv} failed:`, err);
+    showChartLoading(false);
+    showChartError(`Unable to load ${intervalLabel(itv)} data (${err.message || 'Intraday data unavailable'}). Showing daily view instead.`);
+    currentInterval = '1d';
+    updateTimeframeButtons('1d');
+    if (prevInterval !== '1d') {
+      try {
+        const [hist1d, strat1d] = await Promise.all([
+          fetchJson(`/api/history/${currentTicker}?interval=1d`),
+          fetchJson(`/api/strategies/${currentTicker}?interval=1d`)
+        ]);
+        renderCandles(hist1d, false);
+        const last = hist1d[hist1d.length - 1];
+        const dateEl = document.getElementById('chartDataAsOf');
+        if (dateEl && last) {
+          dateEl.textContent = 'Data as of ' + formatDataAsOf(last.Date, '1d');
+        }
+        updateStrategyBadges(strat1d, false);
+      } catch (e2) {
+        console.error('Failed to reload daily chart', e2);
+      }
+    }
+  }
 }
 
 // ======================= ML PREDICTION =======================
