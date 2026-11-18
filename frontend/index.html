@@ -100,6 +100,45 @@
   .plan .tgt .v { color: #00a86b; }
 
   .up { color: #00a86b; } .dn { color: #e5484d; }
+
+  /* Prediction Card Redesign */
+  .pred-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0; }
+  .pred-box { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: var(--card); }
+  .pred-box .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .pred-box .val { font-size: 19px; font-weight: 700; color: var(--text); }
+  .pred-box.featured { background: var(--soft); border-left: 4px solid var(--border); }
+  .pred-box.featured .val { font-size: 26px; font-weight: 800; color: var(--text); }
+  .pred-box.featured.up { border-left-color: #00b386; }
+  .pred-box.featured.dn { border-left-color: #e5484d; }
+  .pred-box.featured.hold { border-left-color: var(--muted); }
+  .pred-change { font-size: 19px; font-weight: 800; display: flex; align-items: center; gap: 6px; }
+  .pred-diff { font-size: 11px; color: var(--muted); margin-top: 3px; font-weight: 600; }
+
+  .pred-summary { font-size: 13.5px; font-weight: 600; line-height: 1.5; padding: 10px 14px; border-radius: 8px; background: var(--soft); margin: 10px 0 14px; border-left: 3px solid var(--border); }
+  .pred-summary.up { border-left-color: #00b386; }
+  .pred-summary.dn { border-left-color: #e5484d; }
+  .pred-summary.hold { border-left-color: var(--muted); }
+
+  .mag-wrap { margin: 12px 0 8px; padding: 4px 2px; }
+  .mag-labels { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); margin-bottom: 6px; }
+  .mag-track { position: relative; height: 8px; background: var(--line); border-radius: 4px; }
+  .mag-mid { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: var(--muted); opacity: 0.5; z-index: 1; transform: translateX(-50%); }
+  .mag-bar { position: absolute; top: 0; height: 100%; border-radius: 4px; }
+  .mag-bar.up { background: #00b386; }
+  .mag-bar.dn { background: #e5484d; }
+  .mag-dot { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; background: var(--card); border: 3px solid #00b386; transform: translate(-50%, -50%); box-shadow: 0 1px 4px rgba(0,0,0,0.2); z-index: 2; transition: left 0.3s ease; }
+  .mag-dot.dn { border-color: #e5484d; }
+  .mag-dot.hold { border-color: var(--muted); }
+
+  .pred-details { font-size: 11.5px; color: var(--muted); margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+  .pred-details summary { cursor: pointer; user-select: none; font-weight: 600; color: var(--muted2); }
+  .pred-details summary:hover { color: var(--text); }
+  .pred-details-body { margin-top: 6px; line-height: 1.55; color: var(--muted); }
+
+  .info-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--muted); font-size: 10.5px; font-weight: 700; color: var(--muted); cursor: help; margin-left: 6px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: #00b386; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
+
   @media (max-width: 820px) {
     .layout { flex-direction: column; height: auto; }
     .sidebar { width: 100%; border-right: 0; border-bottom: 1px solid var(--border); overflow-x: auto; }
@@ -108,7 +147,7 @@
     .watch-item { min-width: 160px; flex: 0 0 auto; }
     .main { padding: 14px; overflow-y: visible; }
     .scorecards { grid-template-columns: 1fr; }
-    .oc-metrics, .plan { grid-template-columns: repeat(2, 1fr); }
+    .oc-metrics, .plan, .pred-grid { grid-template-columns: 1fr; }
     .hdr-sub { display: none; }
     #priceChart { height: 340px; }
   }
@@ -256,20 +295,7 @@ function renderMain(ticker, history, strategies, backtest) {
     scoreEl.appendChild(div);
   });
 
-  fetchJson('/api/predict/' + ticker).then(pred => {
-    if (ticker !== currentTicker) return;
-    const dir = pred.change_pct >= 0 ? 'BUY' : 'SELL';
-    document.getElementById('predictionCard').innerHTML = `
-      <h4>ML Prediction — Next Close</h4>
-      <div style="display:flex; align-items:baseline; flex-wrap:wrap; gap:14px; margin-top:8px;">
-        <div style="font-size:24px; font-weight:800;">₹${pred.predicted_next_close}</div>
-        <span class="badge ${dir}">${pred.change_pct >= 0 ? '+' : ''}${pred.change_pct}%</span></div>
-      <div class="lbl" style="margin-top:6px;">Last close: ₹${pred.current_price} · Ridge regression on RSI / MACD / return features · one-day moves are normally small</div>`;
-  }).catch(e => {
-    const el = document.getElementById('predictionCard');
-    if (el && ticker === currentTicker) el.innerHTML = `<div class="notice muted">Prediction unavailable (${esc(e.message)}).</div>`;
-  });
-
+  loadPrediction(ticker, asOf);
   loadMl(ticker);
   loadAiInsight(ticker, false);
   loadOptionChain(ticker, false);
@@ -315,6 +341,153 @@ function renderCandles(history) {
     .setData(rows.filter(({ r }) => r.MA_50 != null).map(({ d, r }) => ({ time: d, value: r.MA_50 })));
 
   chartInstance.timeScale().fitContent();
+}
+
+// ======================= ML PREDICTION =======================
+async function loadPrediction(ticker, asOf) {
+  const el = document.getElementById('predictionCard');
+  if (!el) return;
+  const cleanTicker = ticker.replace('.NS', '');
+
+  // Instant loading state when switching stocks
+  el.innerHTML = `
+    <div class="card-head">
+      <div style="display:flex; align-items:center;">
+        <h4 style="margin:0;">ML Prediction — Next Close</h4>
+        <span class="info-icon" title="Predicts tomorrow's closing price using a Ridge regression model trained on RSI, MACD, and recent return features.">ⓘ</span>
+      </div>
+      <span class="ai-meta">Loading…</span>
+    </div>
+    <div class="loading" style="padding: 24px 0;">
+      <span class="spinner"></span> Calculating Ridge prediction for ${esc(cleanTicker)}…
+    </div>`;
+
+  try {
+    const pred = await fetchJson('/api/predict/' + ticker);
+    if (ticker !== currentTicker) return;
+    renderPredictionCard(ticker, pred, asOf);
+  } catch (e) {
+    if (ticker !== currentTicker) return;
+    el.innerHTML = `
+      <div class="card-head">
+        <div style="display:flex; align-items:center;">
+          <h4 style="margin:0;">ML Prediction — Next Close</h4>
+          <span class="info-icon" title="Predicts tomorrow's closing price using a Ridge regression model.">ⓘ</span>
+        </div>
+        <span class="src-badge SIMULATED">UNAVAILABLE</span>
+      </div>
+      <div class="notice warn" style="margin-top:10px;">
+        Prediction unavailable for ${esc(cleanTicker)} right now (${esc(e.message)}).
+      </div>`;
+  }
+}
+
+function renderPredictionCard(ticker, pred, fallbackAsOf) {
+  const el = document.getElementById('predictionCard');
+  if (!el) return;
+
+  const cleanTicker = ticker.replace('.NS', '');
+  const asOf = pred.as_of_date || fallbackAsOf || 'latest session';
+  const lastClose = Number(pred.current_price || 0);
+  const predClose = Number(pred.predicted_next_close || 0);
+  const changePct = Number(pred.change_pct || 0);
+  const diffVal = predClose - lastClose;
+
+  // Direction & color logic
+  const isUp = changePct > 0.001;
+  const isDn = changePct < -0.001;
+  const dirCls = isUp ? 'up' : (isDn ? 'dn' : 'hold');
+  const badgeDir = isUp ? 'BUY' : (isDn ? 'SELL' : 'HOLD');
+  const arrow = isUp ? '▲' : (isDn ? '▼' : '▶');
+  const sign = isUp ? '+' : '';
+  const diffSign = diffVal > 0 ? '+' : (diffVal < 0 ? '-' : '');
+
+  // Magnitude bar calculation on a -2% to +2% scale
+  const minScale = -2.0, maxScale = 2.0;
+  const clamped = Math.max(minScale, Math.min(maxScale, changePct));
+  const dotPos = ((clamped - minScale) / (maxScale - minScale)) * 100;
+  let barStyle = '';
+  if (isUp) {
+    barStyle = `left: 50%; width: ${dotPos - 50}%;`;
+  } else if (isDn) {
+    barStyle = `left: ${dotPos}%; width: ${50 - dotPos}%;`;
+  } else {
+    barStyle = `left: 50%; width: 0%;`;
+  }
+
+  // Dynamic plain-English summary sentence
+  const absPct = Math.abs(changePct);
+  let summaryText = '';
+  if (absPct < 0.05) {
+    summaryText = `The model expects <b>${esc(cleanTicker)}</b> to close virtually flat tomorrow, remaining near ₹${num2(lastClose)} (estimated change of ${sign}${num2(changePct)}% from the ${esc(asOf)} close).`;
+  } else {
+    const moveSize = absPct >= 1.5 ? 'a notable move' : (absPct >= 0.75 ? 'a moderate move' : 'a small move');
+    const dirWord = isUp ? (absPct >= 1.5 ? 'higher' : 'slightly higher') : (absPct >= 1.5 ? 'lower' : 'slightly lower');
+    summaryText = `The model expects <b>${esc(cleanTicker)}</b> to close <b>${dirWord}</b> tomorrow, ${moveSize} of <b>${sign}${num2(changePct)}%</b> from the ${esc(asOf)} close.`;
+  }
+
+  el.innerHTML = `
+    <div class="card-head">
+      <div style="display:flex; align-items:center;">
+        <h4 style="margin:0;">ML Prediction — Next Close</h4>
+        <span class="info-icon" title="Predicts tomorrow's closing price using a Ridge regression model trained on RSI, MACD, and recent return features.">ⓘ</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span class="badge ${badgeDir}">${arrow} ${sign}${num2(changePct)}%</span>
+        <span class="ai-meta">Data as of ${esc(asOf)}</span>
+      </div>
+    </div>
+
+    <!-- 3-Value Comparison Row -->
+    <div class="pred-grid">
+      <div class="pred-box">
+        <div class="lbl">Last Close (${esc(asOf)})</div>
+        <div class="val">₹${num2(lastClose)}</div>
+      </div>
+      <div class="pred-box featured ${dirCls}">
+        <div class="lbl">Predicted Next Close</div>
+        <div class="val">₹${num2(predClose)}</div>
+      </div>
+      <div class="pred-box">
+        <div class="lbl">Expected Change</div>
+        <div class="pred-change ${dirCls}">
+          <span>${arrow}</span>
+          <span>${sign}${num2(changePct)}%</span>
+        </div>
+        <div class="pred-diff">(${diffSign}₹${num2(Math.abs(diffVal))})</div>
+      </div>
+    </div>
+
+    <!-- Plain-English Dynamic Summary -->
+    <div class="pred-summary ${dirCls}">
+      ${summaryText}
+    </div>
+
+    <!-- Magnitude Scale Bar (-2% to +2%) -->
+    <div class="mag-wrap">
+      <div class="mag-labels">
+        <span>-2% (Drop)</span>
+        <span>-1%</span>
+        <span>0% (Flat)</span>
+        <span>+1%</span>
+        <span>+2% (Gain)</span>
+      </div>
+      <div class="mag-track">
+        <div class="mag-mid"></div>
+        <div class="mag-bar ${dirCls}" style="${barStyle}"></div>
+        <div class="mag-dot ${dirCls}" style="left:${dotPos}%;" title="${sign}${num2(changePct)}%"></div>
+      </div>
+    </div>
+
+    <!-- Technical Caption (de-emphasized & collapsible) -->
+    <details class="pred-details">
+      <summary>Model details &amp; methodology ▾</summary>
+      <div class="pred-details-body">
+        <strong>Model:</strong> Ridge regression (alpha=50.0) with standard feature scaling.<br/>
+        <strong>Features:</strong> 14-day RSI, MACD histogram, MA 20/50 ratio, recent returns (1d, 5d, 20d), volume change, and 10-day volatility.<br/>
+        <strong>Note:</strong> One-day price moves are typically small. Statistical forecasts represent expected returns based on historical patterns and are not financial guarantees.
+      </div>
+    </details>`;
 }
 
 // ======================= ML STRATEGY SELECTION =======================
