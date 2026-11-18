@@ -169,6 +169,9 @@ def predict(ticker):
         "current_price": round(current, 2),
         "predicted_next_close": round(predicted, 2),
         "change_pct": round(ret, 2),
+        "as_of_date": str(latest['Date'])[:10],
+        "model_name": "Ridge regression",
+        "features": "RSI, MACD, MA ratio, returns (1d/5d/20d), volume, volatility",
     })
 
 
