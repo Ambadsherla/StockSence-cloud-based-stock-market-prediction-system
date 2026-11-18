@@ -119,15 +119,59 @@ def price(ticker):
     return jsonify(get_live_price(ticker))
 
 
+def get_history_df(ticker, interval='1d'):
+    check(ticker)
+    interval = (interval or '1d').lower()
+    if interval in ('1d', 'daily'):
+        return load_processed(ticker), '1d'
+
+    if interval in ('3m', '10m'):
+        raise ValueError(f"{interval} interval is not supported by market data source")
+
+    period_map = {'1m': '5d', '5m': '30d', '15m': '60d', '30m': '60d', '1h': '180d', '60m': '180d'}
+    yf_interval = '60m' if interval == '1h' else interval
+    if yf_interval not in period_map:
+        raise ValueError(f"Unsupported interval: {interval}")
+
+    import yfinance as yf
+    stock = yf.Ticker(ticker)
+    raw = stock.history(period=period_map[yf_interval], interval=yf_interval)
+    if raw is None or raw.empty:
+        raise RuntimeError(f"Intraday data currently unavailable for {interval}")
+
+    df = raw.reset_index()
+    date_col = 'Datetime' if 'Datetime' in df.columns else 'Date'
+    df = df[[date_col, 'Open', 'High', 'Low', 'Close', 'Volume']].dropna().copy()
+    df['Date'] = pd.to_datetime(df[date_col]).dt.strftime('%Y-%m-%d %H:%M:%S')
+    df = df.drop_duplicates('Date').sort_values('Date').reset_index(drop=True)
+    if len(df) < 5:
+        raise RuntimeError(f"Insufficient intraday data points ({len(df)})")
+
+    df['MA_20'] = df['Close'].rolling(20).mean()
+    df['MA_50'] = df['Close'].rolling(50).mean()
+    df['Daily_Return'] = df['Close'].pct_change() * 100
+    return df, interval
+
+
 @app.route('/api/history/<ticker>')
 def history(ticker):
-    df = load_processed(ticker)
-    return Response(df.to_json(orient='records'), mimetype='application/json')  # NaN -> null
+    interval = request.args.get('interval', '1d').lower()
+    try:
+        df, _ = get_history_df(ticker, interval)
+        return Response(df.to_json(orient='records'), mimetype='application/json')
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 503
 
 
 @app.route('/api/strategies/<ticker>')
 def strategies(ticker):
-    df = load_processed(ticker)
+    interval = request.args.get('interval', '1d').lower()
+    try:
+        df, _ = get_history_df(ticker, interval)
+    except Exception:
+        df = load_processed(ticker)
     results = {
         "MA Crossover": moving_average_crossover(df.copy()),
         "RSI Strategy": rsi_strategy(df.copy()),
@@ -136,7 +180,8 @@ def strategies(ticker):
     response = {}
     for name, sdf in results.items():
         sigs = sdf[sdf['Signal'] != 'HOLD'][['Date', 'Close', 'Signal']].to_dict(orient='records')
-        response[name] = {"latest_signal": sdf.iloc[-1]['Signal'], "signal_history": sigs}
+        latest_sig = sdf.iloc[-1]['Signal'] if not sdf.empty else 'HOLD'
+        response[name] = {"latest_signal": latest_sig, "signal_history": sigs}
     return jsonify(response)
 
 
