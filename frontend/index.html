@@ -223,10 +223,45 @@ function formatDataAsOf(dateStr, interval) {
   if (!dateStr) return '';
   const s = String(dateStr).trim();
   const isIntraday = interval && interval !== '1d' && interval !== 'daily';
-  if (isIntraday && s.length > 10) {
-    return s.substring(0, 16);
+  if (!isIntraday) {
+    return s.substring(0, 10);
   }
-  return s.substring(0, 10);
+  // Strip the +05:30 offset suffix the backend now appends, then trim to minute precision.
+  // The time portion is already in IST, so we just display it directly.
+  const withoutOffset = s.replace(/[+-]\d{2}:\d{2}$/, '').replace('T', ' ').trim();
+  return withoutOffset.substring(0, 16);  // 'YYYY-MM-DD HH:MM'
+}
+
+// --- IST timezone helpers — single shared conversion for header + chart x-axis ---
+// IST = UTC+05:30 = 19800 s ahead of UTC.
+// LightweightCharts always renders unix timestamps as UTC.
+// We shift every timestamp forward by 19800 s so LWC displays the IST wall-clock value.
+const IST_OFFSET_S = 19800; // 5 h 30 m in seconds
+
+// LWC IST crosshair/tooltip formatter.
+function lwcFormatIST(shiftedTs) {
+  const d = new Date(shiftedTs * 1000);
+  const yyyy = d.getUTCFullYear();
+  const mm   = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd   = String(d.getUTCDate()).padStart(2, '0');
+  const hh   = String(d.getUTCHours()).padStart(2, '0');
+  const mi   = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+}
+
+// Tick-mark formatter for the LWC x-axis labels.
+// Called with (time, tickMarkType, locale) — 'time' is our shifted unix ts for
+// intraday, or a BusinessDay object { year, month, day } for daily.
+function lwcTickMarkFormatter(time) {
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if (typeof time === 'object' && time !== null) {
+    const { year, month, day } = time;
+    return `${String(day).padStart(2,'0')} ${MONTHS[month-1]} '${String(year).slice(2)}`;
+  }
+  const d = new Date(time * 1000);
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mi = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${hh}:${mi}`;
 }
 
 async function loadWatchlist() {
@@ -383,12 +418,19 @@ async function refreshData() {
 function parseCandleTime(dateVal, isIntraday) {
   const s = String(dateVal || '').trim();
   if (!isIntraday) {
-    return s.substring(0, 10);
+    return s.substring(0, 10);  // 'YYYY-MM-DD' — LWC business-day format, no tz needed
   }
-  const isoStr = s.includes(' ') ? s.replace(' ', 'T') : s;
+  // Normalise: space → T
+  let isoStr = s.includes(' ') ? s.replace(' ', 'T') : s;
+  // If no timezone offset is present, treat as IST (defensive fallback for legacy data)
+  if (!/[Zz]|[+-]\d{2}:\d{2}$/.test(isoStr)) {
+    isoStr = isoStr + '+05:30';
+  }
   const d = new Date(isoStr);
-  const ts = Math.floor(d.getTime() / 1000);
-  return isNaN(ts) ? s.substring(0, 10) : ts;
+  if (isNaN(d.getTime())) return 0;
+  // d.getTime()/1000 = UTC unix ts (e.g. 04:45 UTC for a 10:15 IST candle).
+  // Add IST_OFFSET_S so LWC, which renders in UTC, displays the IST wall-clock value.
+  return Math.floor(d.getTime() / 1000) + IST_OFFSET_S;
 }
 
 function uniqueByTime(rows, isIntraday) {
@@ -413,7 +455,13 @@ function renderCandles(history, isIntraday) {
       ...theme.timeScale,
       timeVisible: !!isIntraday,
       secondsVisible: false,
+      // For intraday: render tick labels in IST using our shifted timestamps
+      tickMarkFormatter: isIntraday ? lwcTickMarkFormatter : undefined,
     },
+    localization: isIntraday ? {
+      // Crosshair time label (the floating label at the cursor) — force IST display
+      timeFormatter: lwcFormatIST,
+    } : {},
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal }
   });
 
@@ -941,6 +989,8 @@ function toggleTheme() {
   document.documentElement.dataset.theme = t;
   try { localStorage.setItem('theme', t); } catch (e) {}
   syncThemeBtn();
+  // applyOptions only updates colours — tickMarkFormatter/localization survive as they
+  // were baked into createChart; we just re-apply the theme palette here.
   if (chartInstance) chartInstance.applyOptions(chartTheme());
 }
 async function loadMe() {
