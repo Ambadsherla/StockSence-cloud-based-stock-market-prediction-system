@@ -142,7 +142,12 @@ def get_history_df(ticker, interval='1d'):
     df = raw.reset_index()
     date_col = 'Datetime' if 'Datetime' in df.columns else 'Date'
     df = df[[date_col, 'Open', 'High', 'Low', 'Close', 'Volume']].dropna().copy()
-    df['Date'] = pd.to_datetime(df[date_col]).dt.strftime('%Y-%m-%d %H:%M:%S')
+    # Convert to IST explicitly and emit offset (+05:30) so the browser and chart
+    # always know the timezone without ambiguity regardless of server OS timezone.
+    dt_series = pd.to_datetime(df[date_col])
+    if dt_series.dt.tz is None:
+        dt_series = dt_series.dt.tz_localize('UTC')
+    df['Date'] = dt_series.dt.tz_convert('Asia/Kolkata').dt.strftime('%Y-%m-%d %H:%M:%S+05:30')
     df = df.drop_duplicates('Date').sort_values('Date').reset_index(drop=True)
     if len(df) < 5:
         raise RuntimeError(f"Insufficient intraday data points ({len(df)})")
